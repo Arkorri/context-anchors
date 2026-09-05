@@ -34,6 +34,28 @@ impl RefTarget {
             | RefTarget::Anchor { root, .. } => root.as_ref(),
         }
     }
+
+    /// The same target with its root made explicit, so `#id` written in root `r` compares
+    /// equal to `r:#id`.
+    pub fn resolved_in(&self, written_in: &RootName) -> RefTarget {
+        let root = Some(self.root().unwrap_or(written_in).clone());
+        match self {
+            RefTarget::Path { path, expects, .. } => RefTarget::Path {
+                root,
+                path: path.clone(),
+                expects: *expects,
+            },
+            RefTarget::Symbol { path, name, .. } => RefTarget::Symbol {
+                root,
+                path: path.clone(),
+                name: name.clone(),
+            },
+            RefTarget::Anchor { id, .. } => RefTarget::Anchor {
+                root,
+                id: id.clone(),
+            },
+        }
+    }
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]

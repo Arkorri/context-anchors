@@ -10,6 +10,7 @@ pub mod config;
 pub mod diagnostic;
 pub mod index;
 pub mod marker;
+pub mod rename;
 pub mod resolve;
 pub mod root;
 pub mod scan;
