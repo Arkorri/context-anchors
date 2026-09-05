@@ -1,0 +1,32 @@
+[package]
+name = "context-anchors"
+description = "anchr: a compiler-style checker for references in docs, agent context files, and code comments"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+repository.workspace = true
+
+[[bin]]
+name = "anchr"
+path = "src/main.rs"
+
+[lints]
+workspace = true
+
+[dependencies]
+anchr-core = { workspace = true }
+anstream = { workspace = true }
+annotate-snippets = { workspace = true }
+anyhow = { workspace = true }
+camino = { workspace = true }
+clap = { workspace = true }
+clap_complete = { workspace = true }
+serde = { workspace = true }
+serde_json = { workspace = true }
+
+[dev-dependencies]
+assert_cmd = { workspace = true }
+insta = { workspace = true }
+predicates = { workspace = true }
+tempfile = { workspace = true }
