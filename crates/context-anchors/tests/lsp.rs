@@ -266,3 +266,143 @@ fn the_server_publishes_diagnostics_and_answers_navigation_requests() {
 
     client.shutdown();
 }
+
+#[test]
+fn alias_uses_navigate_through_their_declaration_and_rename_within_their_file() {
+    let dir = tempfile::tempdir().unwrap();
+    let root = dir.path().join("repo");
+    std::fs::create_dir_all(root.join("docs")).unwrap();
+    std::fs::write(root.join("docs/guide.md"), "# Guide @anchor[guide]\n").unwrap();
+    std::fs::write(
+        root.join("docs/other.md"),
+        "@ref[#guide as G] then @[G] and @[G].\n@ref[#gone as Gone] @[Gone]\n",
+    )
+    .unwrap();
+    let guide_uri = file_uri(&root.join("docs/guide.md"));
+    let other_uri = file_uri(&root.join("docs/other.md"));
+
+    let mut client = Client::start(&root);
+    client.request(
+        "initialize",
+        json!({
+            "processId": null,
+            "rootUri": file_uri(&root),
+            "capabilities": { "general": { "positionEncodings": ["utf-8"] } },
+        }),
+    );
+    client.notify("initialized", json!({}));
+    let other_text = std::fs::read_to_string(root.join("docs/other.md")).unwrap();
+    client.notify(
+        "textDocument/didOpen",
+        json!({ "textDocument": { "uri": other_uri, "languageId": "markdown", "version": 1, "text": other_text } }),
+    );
+
+    // The broken declaration is the only diagnostic; its uses ride along as related information.
+    let diagnostics = client.diagnostics_for(&other_uri);
+    assert_eq!(diagnostics.len(), 1, "{diagnostics:?}");
+    assert_eq!(diagnostics[0]["code"], "anchor-missing");
+    assert_eq!(
+        diagnostics[0]["range"]["start"],
+        json!({ "line": 1, "character": 0 })
+    );
+    assert!(
+        diagnostics[0]["message"]
+            .as_str()
+            .unwrap()
+            .contains("has 1 use")
+    );
+    let related = diagnostics[0]["relatedInformation"].as_array().unwrap();
+    assert_eq!(related.len(), 1);
+    assert_eq!(
+        related[0]["location"]["range"]["start"],
+        json!({ "line": 1, "character": 20 })
+    );
+
+    // Definition from a use: the target, then the declaration in the same file.
+    let definition = client.request(
+        "textDocument/definition",
+        json!({ "textDocument": { "uri": other_uri }, "position": { "line": 0, "character": 25 } }),
+    );
+    let locations = definition["result"].as_array().unwrap();
+    assert_eq!(locations.len(), 2, "{locations:?}");
+    assert_eq!(locations[0]["uri"], guide_uri);
+    assert_eq!(locations[1]["uri"], other_uri);
+    assert_eq!(
+        locations[1]["range"]["start"],
+        json!({ "line": 0, "character": 0 })
+    );
+
+    // References from the declaration include its uses.
+    let references = client.request(
+        "textDocument/references",
+        json!({
+            "textDocument": { "uri": other_uri },
+            "position": { "line": 0, "character": 6 },
+            "context": { "includeDeclaration": false },
+        }),
+    );
+    assert_eq!(references["result"].as_array().unwrap().len(), 3);
+
+    // Document symbols list alias declarations.
+    let symbols = client.request(
+        "textDocument/documentSymbol",
+        json!({ "textDocument": { "uri": other_uri } }),
+    );
+    let names: Vec<&str> = symbols["result"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .map(|s| s["name"].as_str().unwrap())
+        .collect();
+    assert_eq!(names, vec!["G", "Gone"]);
+
+    // Rename on a use rewrites the alias token and every use, in this file only.
+    let rename = client.request(
+        "textDocument/rename",
+        json!({
+            "textDocument": { "uri": other_uri },
+            "position": { "line": 0, "character": 25 },
+            "newName": "Guide",
+        }),
+    );
+    let changes = rename["result"]["changes"].as_object().unwrap();
+    assert_eq!(changes.len(), 1, "{changes:?}");
+    let edits = changes[&other_uri].as_array().unwrap();
+    assert_eq!(edits.len(), 3);
+    assert!(edits.iter().all(|e| e["newText"] == "Guide"));
+    assert_eq!(
+        edits[0]["range"],
+        json!({ "start": { "line": 0, "character": 15 }, "end": { "line": 0, "character": 16 } })
+    );
+
+    // Rename with the cursor on the anchor id renames the anchor, in both files.
+    let rename = client.request(
+        "textDocument/rename",
+        json!({
+            "textDocument": { "uri": other_uri },
+            "position": { "line": 0, "character": 7 },
+            "newName": "user-guide",
+        }),
+    );
+    let changes = rename["result"]["changes"].as_object().unwrap();
+    assert_eq!(changes.len(), 2, "{changes:?}");
+    assert_eq!(
+        changes[&other_uri][0]["range"],
+        json!({ "start": { "line": 0, "character": 6 }, "end": { "line": 0, "character": 11 } })
+    );
+
+    // An invalid alias is refused; so is a name the file already declares.
+    for bad in ["has space", "Gone"] {
+        let refused = client.request(
+            "textDocument/rename",
+            json!({
+                "textDocument": { "uri": other_uri },
+                "position": { "line": 0, "character": 25 },
+                "newName": bad,
+            }),
+        );
+        assert_eq!(refused["error"]["code"], -32602, "{bad}");
+    }
+
+    client.shutdown();
+}
