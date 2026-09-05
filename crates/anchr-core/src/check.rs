@@ -14,7 +14,7 @@ use crate::resolve::{IndexedRoot, IndexedRoots, Resolution, Resolver};
 use crate::root::{FilePath, RootName, RootSet, RootSetError};
 use crate::scan::{ScanError, ScanMode, SkippedFile, WalkProblem, scan_root};
 use crate::span::PositionOverflow;
-use crate::text::{LanguageRegistry, RegistryError};
+use crate::text::{AnalyzeError, Container, FileAnalyzer, LanguageRegistry, RegistryError};
 
 #[derive(Debug, Clone, Default)]
 pub struct CheckOptions {
@@ -107,6 +107,35 @@ impl Workspace {
 
     pub fn current(&self) -> (&crate::root::Root, &Index) {
         self.roots.current()
+    }
+
+    /// Re-lexes one file of the current root from `text` (an editor buffer, not the disk) and
+    /// replaces its index entry. Returns `false` when the file has no container and is
+    /// therefore not scanned.
+    pub fn update_file(&mut self, path: FilePath, text: &str) -> Result<bool, AnalyzeError> {
+        let (root, index) = self.roots.current_mut();
+        let Some(container) =
+            Container::for_path(path.as_path(), &root.config.containers, &self.registry)
+        else {
+            index.remove_file(&path);
+            return Ok(false);
+        };
+        let mut analyzer = FileAnalyzer::new(&self.registry, root.config.scan.parse_budget);
+        let scan = analyzer.scan(container, text)?;
+        index.update_file(path, scan);
+        Ok(true)
+    }
+
+    /// Re-lexes one file of the current root from disk, or drops it if it is gone.
+    pub fn reload_file(&mut self, path: FilePath) -> Result<bool, AnalyzeError> {
+        let (root, _) = self.roots.current();
+        match std::fs::read_to_string(root.dir.join(path.as_path())) {
+            Ok(text) => self.update_file(path, &text),
+            Err(_) => {
+                self.roots.current_mut().1.remove_file(&path);
+                Ok(false)
+            }
+        }
     }
 
     pub fn root_dirs(&self) -> BTreeMap<RootName, Utf8PathBuf> {

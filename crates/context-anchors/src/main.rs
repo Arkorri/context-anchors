@@ -1,5 +1,6 @@
 mod cli;
 mod commands;
+mod lsp;
 mod render;
 
 use std::process::ExitCode;
@@ -20,6 +21,7 @@ fn main() -> ExitCode {
         Command::Backrefs(args) => commands::backrefs::run(&args),
         Command::Rename(args) => commands::rename::run(&args),
         Command::Init(args) => commands::init::run(&args),
+        Command::Lsp => lsp::run().map(|()| commands::Outcome::Clean),
         Command::Completions(args) => commands::completions::run(&args),
     };
     match outcome {

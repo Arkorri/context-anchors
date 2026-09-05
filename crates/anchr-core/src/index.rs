@@ -193,6 +193,10 @@ impl Index {
         self.files.get(path).map(|record| &record.line_index)
     }
 
+    pub fn file_record(&self, path: &FilePath) -> Option<&FileRecord> {
+        self.files.get(path)
+    }
+
     pub fn file_count(&self) -> usize {
         self.files.len()
     }

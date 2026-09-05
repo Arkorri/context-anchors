@@ -23,6 +23,8 @@ dunce = "1.0"
 globset = "0.4"
 ignore = "0.4"
 line-index = "0.1"
+lsp-server = "0.10"
+ls-types = "=0.0.6"
 pulldown-cmark = { version = "0.13", default-features = false }
 regex = "1"
 serde = { version = "1.0", features = ["derive"] }
