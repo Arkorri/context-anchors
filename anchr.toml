@@ -1,0 +1,8 @@
+# anchr checks its own documentation. Defaults everywhere; this file marks the root.
+
+[root]
+name = "context-anchors"
+
+[scan]
+# Generated build output and the per-crate test snapshots are not documentation.
+exclude = ["target/**", "**/snapshots/**"]

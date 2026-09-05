@@ -9,3 +9,8 @@ node_modules/
 
 # macOS
 .DS_Store
+
+# fuzzing
+fuzz/target/
+fuzz/artifacts/
+fuzz/corpus/

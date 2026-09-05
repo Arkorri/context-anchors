@@ -1,0 +1,24 @@
+# anchr configuration. Every key is optional; the values shown are the defaults.
+# Docs: ANCHR.md (written by `anchr init`) or https://github.com/averykempton/context-anchors
+
+# [root]
+# name = "<this directory's name>"   # how other roots refer to this one; letters, digits, _ -
+
+# External roots. `@ref[claude:#some-id]` resolves in the root named `claude`.
+# Relative paths are resolved against this file; `~` is expanded.
+# [roots]
+# claude = "~/.claude"
+
+# [scan]
+# include = []                 # empty: every file with a known container is scanned
+# exclude = []                 # gitignore-style globs, applied on top of .gitignore
+# max-file-bytes = 2097152     # larger files are reported as unverified, not scanned
+# parse-budget-ms = 5000       # per-file tree-sitter parse budget
+
+# [containers]
+# markdown = ["md", "markdown"]
+# plaintext = ["txt"]
+# Source files are recognised by extension: rs, ts, tsx, mts, cts, js, jsx, mjs, cjs, py, pyi, go.
+
+# [check]
+# unverified = "report"        # "error" makes every unverified finding fail the check
