@@ -82,6 +82,8 @@ comments (outside backtick spans), and in `.txt` files. Configuration lives in @
 - @ref[DESIGN.md] — what the tool is and the guarantees it makes
 - @ref[DISTRIBUTION.md] — how it ships
 - @ref[CODE_DESIGN.md] — how the code is shaped, and every place it deviates from the two above
+- @ref[docs/design/aliases.md] — file-scoped alias imports, so a reference is declared once per
+  file and used by a short local name
 - `docs/research/` — the crate survey, security checklist digest, and design review behind it
 
 ## License

@@ -859,6 +859,10 @@ Refinements the code made to the design above, recorded so the document stays th
     `rename.rs`, and `coverage.rs` are new. The section headings above point at the real modules.
 12. **Milestone 3 is not started.** `review`/`accept`, exported anchors, and MCP need their own
     code-level design before implementation.
+13. **Alias imports are designed, not yet built.** Dogfooding showed that qualified symbol refs
+    are too long to write at every mention, so unannotated mentions rot unseen. The fix borrows
+    `import x as y`: a file declares a target once under a local name and uses that name at
+    every mention. Grammar, semantics, and the build stages are in @ref[docs/design/aliases.md].
 
 ## 13. Research appendix
 
