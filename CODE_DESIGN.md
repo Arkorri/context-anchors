@@ -1,6 +1,16 @@
 # context-anchors — code-level design
 
 **Status:** approved 2026-09-04
+<!-- refs -->
+@ref[crates/anchr-core/src/marker/target.rs#parse_target as parse_target]
+@ref[crates/anchr-core/src/text/mod.rs#FileAnalyzer as FileAnalyzer]
+@ref[crates/anchr-core/src/index.rs#Index as Index]
+@ref[crates/anchr-core/src/index.rs#Site as Site]
+@ref[crates/anchr-core/src/marker/path.rs#RelPath as RelPath]
+@ref[crates/anchr-core/src/resolve/mod.rs#Resolver as Resolver]
+@ref[crates/anchr-core/src/diagnostic.rs#Report as Report]
+@ref[crates/anchr-core/src/diagnostic.rs#DiagnosticKind as DiagnosticKind]
+
 **Companion to:** @ref[DESIGN.md] (what the tool is) and @ref[DISTRIBUTION.md] (how it ships); this
 document covers how the code is shaped. Where it deviates from those two, §12 says so.
 
@@ -130,9 +140,12 @@ pub enum MalformedMarker {
 not only on `#id`. @ref[#design/grammar] only shows `root:#id`, but the grammar is `[root:]target`
 and making paths/symbols cross-root capable costs nothing and keeps one rule (§12 item 3).
 
-### Target grammar (@ref[crates/anchr-core/src/marker/target.rs#parse_target])
+### Target grammar (@[parse_target])
 
 ```
+ref         := target [ws "as" ws alias]          alias clause declares a file-local name
+use         := "@[" alias "]"                     a use of a declared alias
+alias       := [A-Za-z_] [A-Za-z0-9_]*            max 64 bytes
 target      := [root ":"] body
 body        := "#" anchor_id                      -> Anchor
              | rel_path "#" symbol_name           -> Symbol
@@ -159,11 +172,11 @@ file-scoped rule.
 
 `RelPath::parse` is an allowlist, like the other newtypes: it walks components, rejects
 `RootDir`/`Prefix`/`ParentDir`/`CurDir`, checks each segment's charset, and never touches the
-filesystem. `parse_target` records `PathExpectation::Directory` *before* normalization, because
+filesystem. @[parse_target] records `PathExpectation::Directory` *before* normalization, because
 `Utf8PathBuf` drops trailing separators. Resolution joins onto `Root.dir`; the normalized form is
 what guarantees the join cannot escape the root (§10).
 
-`parse_target` also returns the byte span of the ID portion for `#id` / `root:#id` targets so
+@[parse_target] also returns the byte span of the ID portion for `#id` / `root:#id` targets so
 `rename` (step 10) rewrites exactly the ID bytes and nothing else.
 
 ---
@@ -178,7 +191,7 @@ RootSet (config) ─► scan each present root ─► FileScan{markers, malforme
 
 Single entrypoint: `check::run_check(root_set, options) -> Result<Report, CheckError>`.
 @ref[crates/anchr-core/src/check.rs#CheckError] is tool failure (bad config, unreadable root) →
-exit 2. Broken references are *data* in @ref[crates/anchr-core/src/diagnostic.rs#Report], never
+exit 2. Broken references are *data* in @[Report], never
 `Err`.
 
 ### 3.1 Text regions (which bytes may contain markers)
@@ -186,7 +199,7 @@ exit 2. Broken references are *data* in @ref[crates/anchr-core/src/diagnostic.rs
 `text::TextRegions` is a sorted `Vec<(ByteSpan, RegionKind)>` of *included* ranges. The lexer only
 ever runs over included ranges, so the container is the only thing that decides "prose vs example".
 @ref[crates/anchr-core/src/text/mod.rs#Container] is a pure selector enum (closed set, no trait
-object); the work happens in a per-thread @ref[crates/anchr-core/src/text/mod.rs#FileAnalyzer],
+object); the work happens in a per-thread @[FileAnalyzer],
 because tree-sitter's `Parser` is `!Sync` and must not be constructed per file:
 
 ```rust
@@ -263,17 +276,19 @@ well as markers).
 The marker language is regular. One compiled `regex::Regex` in a `LazyLock`:
 
 ```
-@(anchor|ref)\[(?:([^\]\n]*)\]|)
+@(anchor|ref|)\[(?:([^\[\]\n]*)\]|)
 ```
 
-The empty alternative catches an opener with no closer on the same line → `Unclosed`. A post-filter
+An empty kind is an alias use, `@[X]`; brackets keep it the same shape as every other marker, so
+`@param` in a comment is never one. The empty body alternative catches an opener with no closer
+on the same line → `Unclosed`. A post-filter
 rejects matches whose preceding *character* (`source[..start].chars().next_back()`, not the
 preceding byte, so `é@ref[x]` and `e@ref[x]` behave the same) is alphanumeric or `_`, so
 `foo@ref[...]` inside an email-like token is not a marker. Because the lexer runs over the source
 slice and not the rendered text, a markdown backslash escape `@ref\[x\]` is never lexed; this is the
 documented way to show a literal marker in prose outside a code fence. For each region, run the
 regex on `&source[span]`, offset match positions by `span.start`. Body goes to `AnchorId::parse` or
-`parse_target`; failures become @ref[crates/anchr-core/src/marker/mod.rs#MalformedMarker]. Multiple
+@[parse_target]; failures become @ref[crates/anchr-core/src/marker/mod.rs#MalformedMarker]. Multiple
 markers per line are naturally supported.
 
 Output per file: `FileScan { path, markers: Vec<Marker>, malformed: Vec<MalformedMarker>, line_index: LineIndex }`.
@@ -292,7 +307,7 @@ post-filter in the visitor, after the walker has already applied `.gitignore`. A
 integration test pins this: a gitignored `.md` file must not be scanned.
 
 `build_parallel()` gives a thread per core with a per-thread visitor. Each visitor owns a
-`FileAnalyzer` (§3.1) and a clone of an `mpsc::Sender<ScanOutcome>`. Per file:
+@[FileAnalyzer] (§3.1) and a clone of an `mpsc::Sender<ScanOutcome>`. Per file:
 `symlink_metadata` size check first (> `config.scan.max_file_bytes`, default 2 MiB →
 `SkippedFile::TooLarge`), then `std::fs::read` + UTF-8 validation (non-UTF-8 →
 `SkippedFile::NotUtf8`), `analyzer.scan(path, source)`, send. The main thread drains the channel
@@ -336,7 +351,7 @@ impl Index {
 **No persistent cache in v1.** @ref[#design/architecture] says "incremental, gitignored"; the scan
 is embarrassingly parallel and tree-sitter is fast enough that a full rebuild on a mid-size repo is
 well under a second, and an on-disk cache adds an invalidation surface with no correctness benefit
-("never authoritative"). The @ref[crates/anchr-core/src/index.rs#Index] API above is already
+("never authoritative"). The @[Index] API above is already
 incremental for the LSP's in-memory needs. If measurement later says otherwise, persistence goes in
 a cache dir (`directories` crate) keyed by root path, *not* inside the repo, so nothing needs
 gitignoring (§12 item 2).
@@ -367,8 +382,8 @@ pub enum Unverified {
 }
 ```
 
-@ref[crates/anchr-core/src/resolve/mod.rs#Resolver] holds `&RootSet`, `&HashMap<RootName, Index>`,
-its own `FileAnalyzer`, a `DirectoryListingCache`, and a per-run `symbol_cache: HashMap<(RootName,
+@[Resolver] holds `&RootSet`, `&HashMap<RootName, Index>`,
+its own @[FileAnalyzer], a `DirectoryListingCache`, and a per-run `symbol_cache: HashMap<(RootName,
 RelPath), SymbolTable>` so a file referenced by 40 refs is parsed once. Resolution runs
 single-threaded after the fold (it is cheap relative to the scan), so these caches need no
 synchronization.
@@ -430,7 +445,7 @@ pub struct Report { pub diagnostics: Vec<Diagnostic>, pub summary: Summary }
 pub struct Summary { refs_checked, refs_resolved, errors, unverified, anchors, files_scanned }
 ```
 
-Grouping key is the @ref[crates/anchr-core/src/diagnostic.rs#DiagnosticKind] value itself (derive
+Grouping key is the @[DiagnosticKind] value itself (derive
 `Eq + Hash`; it carries the *cause* and never a location): one `AnchorMissing{auth/flow}` with
 twelve sites, not twelve diagnostics; all `Unclosed` `@ref[` markers in one group. File-level
 findings use `Locations::Files`. Sites sorted by (path, line). Errors sorted before unverified, then
@@ -451,7 +466,7 @@ most one suggestion, the lowest distance; never mutates.
   `anstream` for TTY detection and `NO_COLOR`. Per diagnostic: title = cause (`unknown id
   \`auth/flow\``), the first site rendered as a source snippet with the marker span underlined, the
   remaining sites as a compact `path:line:col` list (twelve full snippets would bury the report),
-  and the suggestion as a `help:` footer. Source text is not retained in the `Index`; the renderer
+  and the suggestion as a `help:` footer. Source text is not retained in the @[Index]; the renderer
   re-reads the one file per diagnostic it renders as a snippet and degrades to the `path:line:col`
   form if that read fails (the file changed or vanished between scan and render). Line/col for every
   site comes from `LocatedSite`, so the list form never needs the source. Multi-file gutter
@@ -499,7 +514,7 @@ unverified = "report"       # or "error" (same as --strict)
 ```
 
 The current root needs a @ref[crates/anchr-core/src/root.rs#RootName] for every
-@ref[crates/anchr-core/src/index.rs#Site]; `[root] name` provides it, defaulting to the directory's
+@[Site]; `[root] name` provides it, defaulting to the directory's
 basename (validated; an invalid basename is a config error that names the fix).
 
 External roots load *their own* `anchr.toml` for `[scan]`/`[containers]` if one exists;
@@ -579,7 +594,7 @@ Not used, deliberately: `rayon` (walker already parallel), `tree-sitter-tags` (w
   `#[cfg_attr(test, allow(...))]`).
 - Two channels, kept apart on purpose: **tool failures** propagate as `Err` (exit 2);
   **findings about the user's files** — broken refs, malformed markers, unreadable/too-large
-  files — are data inside `Report`. A single unreadable file must never abort a check; it
+  files — are data inside @[Report]. A single unreadable file must never abort a check; it
   becomes an *unverified* diagnostic so it is visible but non-blocking.
 - Binary: `anyhow` at the top, `main` maps `Ok(report)` → exit code from `report`, `Err` → stderr
   + exit 2.
@@ -589,9 +604,9 @@ Not used, deliberately: `rayon` (walker already parallel), `tree-sitter-tags` (w
 ## 8. Concurrency and state
 
 - Immutable inputs (`RootSet`, `Config`, registry) shared by `&`; per-file work is pure
-  (`&str → FileScan`) and runs on the walker's threads, each owning its `FileAnalyzer`; results
-  flow over an `mpsc` channel to a single-threaded fold into `Index`. Resolution and rendering
-  are single-threaded, so their caches are plain `HashMap`s owned by the `Resolver`. No global
+  (`&str → FileScan`) and runs on the walker's threads, each owning its @[FileAnalyzer]; results
+  flow over an `mpsc` channel to a single-threaded fold into @[Index]. Resolution and rendering
+  are single-threaded, so their caches are plain `HashMap`s owned by the @[Resolver]. No global
   mutable state; the marker `Regex` is a `LazyLock` static and the `LanguageRegistry` is built
   once per run and shared by `&`.
 
@@ -599,7 +614,7 @@ Not used, deliberately: `rayon` (walker already parallel), `tree-sitter-tags` (w
 
 ## 9. Testing
 
-- **Unit** (in each module): `parse_target` table tests incl. every rejection reason (qualified
+- **Unit** (in each module): @[parse_target] table tests incl. every rejection reason (qualified
   symbol, reserved chars in path segments, `.`/`..`, trailing-slash expectation, root prefix on each
   kind); @ref[crates/anchr-core/src/marker/id.rs#AnchorId] charset; lexer with `proptest`
   (round-trip: any generated valid marker embedded in random text is found with the right span; any
@@ -627,10 +642,11 @@ Not used, deliberately: `rayon` (walker already parallel), `tree-sitter-tags` (w
   bad-config exit-2 snapshot showing the caret rendering, and `init` idempotency / `--force` /
   `--dry-run` / settings-merge preserving foreign keys.
 - **Dogfood**: @ref[anchr.toml] at repo root; CI runs `anchr check --strict` over the repository.
-  The design documents carry live markers: cross-document citations are anchor refs, and the
-  first mention of a type or module in each section is a symbol or path ref. Same-document `§`
-  citations stay numeric, since a renumbering is visible from inside the file being edited. The
-  inline `@ref[...]` examples in those documents live in fences, which is itself a test of fence
+  The design documents carry live markers: cross-document citations are anchor refs; a type or
+  module mentioned repeatedly is declared once in the file's index block and written as an alias
+  use at every mention; a one-off mention is a symbol or path ref. Same-document `§` citations
+  stay numeric, since a renumbering is visible from inside the file being edited. The inline
+  `@ref[...]` examples in those documents live in fences, which is itself a test of fence
   exclusion.
 - **Security gates in CI**: `cargo deny check`, `cargo audit`, `cargo clippy -D warnings`,
   `cargo test`, plus `cargo build --release` size check for the binary (grammar bundle budget).
@@ -674,8 +690,8 @@ overflow-checks = true         # span arithmetic on file-derived offsets must ne
 panic = "unwind"
 ```
 
-`#[must_use]` on `Report`, @ref[crates/anchr-core/src/resolve/mod.rs#Resolution], and every `parse`
-constructor. **No** `#[non_exhaustive]` on core enums: the binary crate matches `DiagnosticKind`,
+`#[must_use]` on @[Report], @ref[crates/anchr-core/src/resolve/mod.rs#Resolution], and every `parse`
+constructor. **No** `#[non_exhaustive]` on core enums: the binary crate matches @[DiagnosticKind],
 @ref[crates/anchr-core/src/resolve/mod.rs#Unresolved], and
 @ref[crates/anchr-core/src/resolve/mod.rs#Unverified] exhaustively in both renderers, and
 `non_exhaustive` (which applies across crates) would force `_ =>` arms there and defeat the "add a
@@ -704,7 +720,7 @@ never escapes `root` for arbitrary `s`.
 
 **Input bounds** (items 14, 16, 19) — `AnchorId`, `RootName`,
 @ref[crates/anchr-core/src/marker/symbol.rs#SymbolName], and
-@ref[crates/anchr-core/src/marker/path.rs#RelPath] are allowlist-parsed newtypes with private fields
+@[RelPath] are allowlist-parsed newtypes with private fields
 and length caps (ID ≤ 256 bytes, segment ≤ 64, path ≤ 1024). File size is checked from metadata
 before reading (`max-file-bytes`, default 2 MiB, validated ≤ `u32::MAX`); oversized files are
 unverified findings. The marker regex is `regex` (linear time). Tree-sitter parsing runs under a
@@ -741,9 +757,9 @@ dropped before the next. Char boundaries: covered under integer handling above. 
 `serde_json` escapes control characters; invalid UTF-8 cannot reach it because non-UTF-8 files
 are rejected at read time.
 
-**Testing** (item 23) — `cargo fuzz` targets for `parse_target`, `lex`, `markdown::text_regions`,
+**Testing** (item 23) — `cargo fuzz` targets for @[parse_target], `lex`, `markdown::text_regions`,
 `source::text_regions` (per language), and `Config::from_str`: must never panic or hang.
-`proptest` on the lexer and `RelPath`. CI: `fmt --check`, `clippy -D warnings`, `test --locked`,
+`proptest` on the lexer and @[RelPath]. CI: `fmt --check`, `clippy -D warnings`, `test --locked`,
 `audit`, `deny check`, MSRV job.
 
 ---
@@ -752,14 +768,14 @@ are rejected at read time.
 
 The version labels in @ref[#design/scope] are milestones, not releases: everything below is built in
 succession before the first public release, so the core is designed for the final shape from
-step 1 (the `Index` update/remove API, the DTO-decoupled JSON schema, and the `LanguageSpec`
+step 1 (the @[Index] update/remove API, the DTO-decoupled JSON schema, and the `LanguageSpec`
 table all exist because steps 9–11 need them).
 
 **Milestone 1 — the guarantee (`anchr check`)**
 1. Workspace scaffold, lints, `deny.toml`, CI skeleton, `cargo-dist` config. Two spike tests
    that pin third-party behaviour the design depends on: a walker-thread panic propagates to
    the caller, and a gitignored file is not yielded even when it matches an include glob.
-2. `span`, `marker` (types + `parse_target` + lexer) — pure, fully unit-tested first.
+2. `span`, `marker` (types + @[parse_target] + lexer) — pure, fully unit-tested first.
 3. `text/markdown`, `text/plaintext`, `text/language` + `text/source` (one language first: Rust,
    to dogfood; then TS/TSX/JS/Py/Go).
 4. `config`, `root`, `scan`, `index`.
@@ -772,7 +788,7 @@ table all exist because steps 9–11 need them).
 
 **Milestone 2 — the multiplier**
 9. `anchr lsp` (`lsp-server` + `ls-types`, stdio): diagnostics on open/change, go-to-definition
-   for `#id` (anchor `Site`) and `file#Symbol` (`SymbolTable` declaration spans),
+   for `#id` (anchor @[Site]) and `file#Symbol` (`SymbolTable` declaration spans),
    find-references via `Index::backrefs`, rename of an anchor ID via the recorded `id_span`s,
    document symbols. Reuses `check::run_check` machinery per root and `Index::update_file` per
    edited document; `catch_unwind` per request (§10).
@@ -817,11 +833,11 @@ disturbing the rest.
 
 Refinements the code made to the design above, recorded so the document stays the map:
 
-1. **Two path types.** `RelPath` is the reference grammar's allowlisted path. Scanned files
+1. **Two path types.** @[RelPath] is the reference grammar's allowlisted path. Scanned files
    get their own identity, `FilePath`, which accepts any UTF-8 relative name: `My Notes.md`
-   must be scanned even though no `@ref` can name it. `Site` and the index are keyed by
-   `FilePath`; `RelPath` converts into it for resolution.
-2. **File identity lives on the scan, not the marker.** `Marker` carries spans only; `Site`
+   must be scanned even though no `@ref` can name it. @[Site] and the index are keyed by
+   `FilePath`; @[RelPath] converts into it for resolution.
+2. **File identity lives on the scan, not the marker.** `Marker` carries spans only; @[Site]
    (root, path, span, region) is built by the index and diagnostics. Markers keep a
    `body_span`, and refs to anchors an `id_span`, which rename and the LSP rewrite.
 3. **Comments exclude backtick spans**, mirroring markdown's inline-code rule (§3.1). This
@@ -859,10 +875,13 @@ Refinements the code made to the design above, recorded so the document stays th
     `rename.rs`, and `coverage.rs` are new. The section headings above point at the real modules.
 12. **Milestone 3 is not started.** `review`/`accept`, exported anchors, and MCP need their own
     code-level design before implementation.
-13. **Alias imports are designed, not yet built.** Dogfooding showed that qualified symbol refs
-    are too long to write at every mention, so unannotated mentions rot unseen. The fix borrows
-    `import x as y`: a file declares a target once under a local name and uses that name at
-    every mention. Grammar, semantics, and the build stages are in @ref[docs/design/aliases.md].
+13. **Alias imports.** Dogfooding showed that qualified symbol refs are too long to write at
+    every mention, so unannotated mentions rot unseen. The fix borrows `import x as y`: a file
+    declares a target once under a local name (`@ref[target as X]`) and writes `@[X]` at every
+    mention. The alias table lives on the file's index record; uses bind through it, join
+    `backrefs`, and are counted separately; undeclared and duplicate aliases are errors keyed by
+    file. Grammar, semantics, and reasons are in @ref[docs/design/aliases.md]. This document's own
+    index block at the top is the first user.
 
 ## 13. Research appendix
 

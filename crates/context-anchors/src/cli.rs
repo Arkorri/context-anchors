@@ -5,7 +5,7 @@ use clap::{Args, Parser, Subcommand, ValueEnum};
 #[command(
     name = "anchr",
     version,
-    about = "Checks @anchor / @ref markers in docs, agent context files, and code comments",
+    about = "Checks @anchor, @ref, and @[alias] markers in docs, agent context files, and code comments",
     long_about = None
 )]
 pub struct Cli {
@@ -23,7 +23,7 @@ pub enum Command {
     Rename(RenameArgs),
     /// Report reference-shaped strings that carry no marker. Never fails.
     Coverage(CoverageArgs),
-    /// Propose `@ref` markers for reference-shaped strings whose target resolves.
+    /// Propose `@ref` and `@[alias]` markers for reference-shaped strings whose target resolves.
     Annotate(AnnotateArgs),
     /// Write an `anchr.toml`, the marker guide for agents, and optional editor hooks.
     Init(InitArgs),

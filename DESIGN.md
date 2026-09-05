@@ -78,11 +78,13 @@ semantics exactly where they belong — on the identity — without making cosme
 ## 4. Grammar
 <!-- @anchor[design/grammar] -->
 
-The entire marker language is two productions.
+The entire marker language is three productions.
 
 ```
 @anchor[some-id]     declares an identity at this location
 @ref[target]         asserts that target resolves
+@ref[target as X]    the same, and names the target X within this file
+@[X]                 a use of that name, checked through its declaration
 ```
 
 **Why `@anchor` rather than `@def`.** The static-analysis pair `@def`/`@ref` is more precise and
@@ -127,7 +129,34 @@ One operator, one target grammar, five resolution kinds:
 **`#` introduces a name; a bare target is a path.** This is the disambiguation rule. Without it
 `@ref[docs]` is ambiguous between a directory named `docs` and an ID named `docs`, and the
 ambiguity gets worse once hierarchical IDs contain `/`. With it, the grammar needs no lookahead
-and IDs can never collide with paths.
+and IDs can never collide with paths. The same reasoning keeps brackets on alias uses: `@[X]`
+has the shape of every other marker, so a bare `@word` in prose or a comment (`@param`, a
+handle) is never one.
+
+### Aliases
+
+A qualified reference is long, and a document that names the same thing ten times will not
+write it ten times. Programming languages settled this with `import x as y`, and the semantics
+are borrowed whole: a file declares a target once under a local name and uses the name at every
+mention.
+
+```markdown
+<!-- refs -->
+@ref[src/auth/session.ts#refreshToken as RefreshToken]
+@ref[#auth/token-refresh as TokenRefresh]
+
+@[RefreshToken] implements the state machine in @[TokenRefresh].
+```
+
+- Scope is the **file**. The same alias in two files is two unrelated declarations.
+- A use with no declaration in its file is an **error**, with a did-you-mean over the file's
+  aliases. Two declarations of one alias in a file is an error. An unused alias is reported by
+  `coverage`, never by `check`.
+- The declaration is the reference: it is resolved, and a broken target reports there, once. Uses
+  bind to it and are not re-resolved. Renaming the target in code is one edit per file.
+- Aliases are ASCII identifiers. `@anchor` is never aliased; an anchor is the identity of a line.
+
+The full design, with the reasons behind each rule, is @ref[docs/design/aliases.md].
 
 ### Markers in code
 
