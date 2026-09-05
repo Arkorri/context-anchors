@@ -1,0 +1,14 @@
+---
+source: crates/context-anchors/tests/cli.rs
+expression: stdout
+---
+error: unknown anchor id `auth/flow` in root `repo`
+ --> docs/a.md:3:5
+  |
+3 | See @ref[#auth/flow] and again @ref[#auth/flow].
+  |     ^^^^^^^^^^^^^^^^
+ ::: docs/a.md:3:32
+ ::: docs/b.md:3:1
+ ::: src/x.rs:1:4
+
+checked 4 references in 3 files (1 anchors): 0 resolved, 1 errors, 0 unverified

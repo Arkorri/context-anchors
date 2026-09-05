@@ -1,8 +1,10 @@
 //! Findings grouped by cause. Deleting an anchor with twelve live references is one
 //! diagnostic with twelve locations, not twelve diagnostics.
 
-use std::collections::HashMap;
+use std::collections::{BTreeMap, HashMap};
 use std::fmt;
+
+use camino::Utf8PathBuf;
 
 use crate::config::UnverifiedPolicy;
 use crate::index::Site;
@@ -238,6 +240,8 @@ pub struct Report {
     pub diagnostics: Vec<Diagnostic>,
     pub summary: Summary,
     pub policy: UnverifiedPolicy,
+    /// Directory of every present root, so renderers can read source for snippets.
+    pub root_dirs: BTreeMap<RootName, Utf8PathBuf>,
 }
 
 impl Report {
@@ -279,7 +283,12 @@ impl ReportBuilder {
         }
     }
 
-    pub fn finish(mut self, policy: UnverifiedPolicy, mut summary: Summary) -> Report {
+    pub fn finish(
+        mut self,
+        policy: UnverifiedPolicy,
+        mut summary: Summary,
+        root_dirs: BTreeMap<RootName, Utf8PathBuf>,
+    ) -> Report {
         let mut diagnostics = Vec::with_capacity(self.order.len());
         for kind in self.order {
             let locations = if let Some(mut sites) = self.sites.remove(&kind) {
@@ -323,6 +332,7 @@ impl ReportBuilder {
             diagnostics,
             summary,
             policy,
+            root_dirs,
         }
     }
 
@@ -377,7 +387,11 @@ mod tests {
         builder.site(missing("auth/flow"), located("a.md", 2));
         builder.site(missing("other"), located("b.md", 1));
 
-        let report = builder.finish(UnverifiedPolicy::Report, Summary::default());
+        let report = builder.finish(
+            UnverifiedPolicy::Report,
+            Summary::default(),
+            BTreeMap::new(),
+        );
         assert_eq!(report.diagnostics.len(), 2);
         let first = &report.diagnostics[0];
         assert_eq!(first.kind, missing("auth/flow"));
@@ -412,7 +426,11 @@ mod tests {
         builder.site(unverified.clone(), located("a.md", 2));
         builder.site(missing("x"), located("b.md", 1));
 
-        let lenient = builder.finish(UnverifiedPolicy::Report, Summary::default());
+        let lenient = builder.finish(
+            UnverifiedPolicy::Report,
+            Summary::default(),
+            BTreeMap::new(),
+        );
         assert_eq!(lenient.diagnostics[0].kind, missing("x"));
         assert_eq!(lenient.diagnostics[1].severity, Severity::Unverified);
         assert_eq!((lenient.summary.errors, lenient.summary.unverified), (1, 1));
@@ -420,7 +438,7 @@ mod tests {
 
         let mut builder = ReportBuilder::default();
         builder.site(unverified, located("a.md", 1));
-        let strict = builder.finish(UnverifiedPolicy::Error, Summary::default());
+        let strict = builder.finish(UnverifiedPolicy::Error, Summary::default(), BTreeMap::new());
         assert_eq!(strict.diagnostics[0].severity, Severity::Error);
         assert!(strict.has_errors());
     }
@@ -444,7 +462,11 @@ mod tests {
             message: "permission denied".to_owned(),
         };
         builder.root(walk, root());
-        let report = builder.finish(UnverifiedPolicy::Report, Summary::default());
+        let report = builder.finish(
+            UnverifiedPolicy::Report,
+            Summary::default(),
+            BTreeMap::new(),
+        );
         let skipped_diagnostic = report
             .diagnostics
             .iter()
