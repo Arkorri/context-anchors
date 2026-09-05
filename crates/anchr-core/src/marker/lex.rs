@@ -24,7 +24,7 @@ pub struct Lexed {
     pub malformed: Vec<MalformedMarker>,
 }
 
-#[derive(Debug, Clone, PartialEq, Eq, thiserror::Error)]
+#[derive(Debug, Clone, PartialEq, Eq, Hash, thiserror::Error)]
 pub enum LexError {
     #[error("text region {span:?} does not lie on character boundaries of the source")]
     RegionNotOnCharBoundary { span: ByteSpan },
