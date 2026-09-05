@@ -1,0 +1,54 @@
+# Called by the cargo-dist release workflow (see `publish-jobs` in dist-workspace.toml) after
+# every platform archive has been built and uploaded. Builds the platform packages and the
+# shim from the manifest, smoke-tests the shim against the Linux x64 package, then publishes
+# platform packages first so the shim's optionalDependencies resolve.
+name: publish npm
+
+on:
+  workflow_call:
+    inputs:
+      plan:
+        required: true
+        type: string
+
+jobs:
+  npm:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      id-token: write
+    env:
+      PLAN: ${{ inputs.plan }}
+    steps:
+      - uses: actions/checkout@v6
+      - name: Fetch built artifacts
+        uses: actions/download-artifact@v8
+        with:
+          pattern: artifacts-*
+          path: target/distrib/
+          merge-multiple: true
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          registry-url: https://registry.npmjs.org
+      - name: Build packages
+        run: |
+          printf '%s' "$PLAN" > dist-plan.json
+          node scripts/npm/build-packages.mjs --manifest dist-plan.json --artifacts target/distrib --out npm-dist
+      - name: Smoke-test the shim
+        run: |
+          cd npm-dist/context-anchors
+          npm install --no-save --ignore-scripts ../@context-anchors/linux-x64
+          node bin/anchr.js --version
+          node bin/anchr.js --help
+      - name: Publish platform packages
+        env:
+          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
+        run: |
+          for package in npm-dist/@context-anchors/*/; do
+            npm publish "$package" --access public --provenance
+          done
+      - name: Publish shim
+        env:
+          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
+        run: npm publish npm-dist/context-anchors --access public --provenance
