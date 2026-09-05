@@ -348,6 +348,7 @@ impl Server {
                 id: id.clone(),
             },
             MarkerPayload::Ref { target, .. } => target.clone(),
+            MarkerPayload::Use { .. } => return Ok(serde_json::Value::Null),
         };
         let mut locations: Vec<Location> = index
             .backrefs(&target)
@@ -386,7 +387,7 @@ impl Server {
                 target: RefTarget::Anchor { root, id },
                 ..
             } if root.as_ref().is_none_or(|r| *r == current_root.name) => id.clone(),
-            MarkerPayload::Ref { .. } => {
+            MarkerPayload::Ref { .. } | MarkerPayload::Use { .. } => {
                 return Err(HandlerError::InvalidParams(
                     "only anchors in the current root can be renamed".to_owned(),
                 ));
@@ -444,7 +445,7 @@ impl Server {
                     convert::range(line_index, marker.span, self.encoding)?,
                     convert::range(line_index, marker.body_span, self.encoding)?,
                 )),
-                MarkerPayload::Ref { .. } => None,
+                MarkerPayload::Ref { .. } | MarkerPayload::Use { .. } => None,
             })
             .collect();
         serde_json::to_value(DocumentSymbolResponse::Nested(symbols))

@@ -1,5 +1,7 @@
-//! The marker language: `@anchor[id]` and `@ref[target]`, and the types they parse into.
+//! The marker language: `@anchor[id]`, `@ref[target]` (optionally `as Alias`), and `@[Alias]`,
+//! and the types they parse into.
 
+mod alias;
 mod id;
 mod lex;
 mod path;
@@ -8,6 +10,7 @@ mod target;
 
 use std::fmt;
 
+pub use alias::{Alias, AliasError, MAX_ALIAS_BYTES};
 pub use id::{AnchorId, IdError, MAX_ID_BYTES, MAX_SEGMENT_BYTES};
 pub use lex::{LexError, Lexed, lex};
 pub use path::{MAX_PATH_BYTES, PathError, PathExpectation, RelPath};
@@ -21,6 +24,8 @@ use crate::text::RegionKind;
 pub enum MarkerKind {
     Anchor,
     Ref,
+    /// `@[Alias]`: a use of an alias declared elsewhere in the same file.
+    Use,
 }
 
 impl fmt::Display for MarkerKind {
@@ -28,6 +33,7 @@ impl fmt::Display for MarkerKind {
         f.write_str(match self {
             MarkerKind::Anchor => "@anchor",
             MarkerKind::Ref => "@ref",
+            MarkerKind::Use => "@[...]",
         })
     }
 }
@@ -52,7 +58,28 @@ pub enum MarkerPayload {
         target: RefTarget,
         /// For `#id` and `root:#id` targets, the bytes a rename rewrites.
         id_span: Option<ByteSpan>,
+        /// Present when the reference was written `target as Alias`.
+        alias: Option<DeclaredAlias>,
     },
+    Use {
+        alias: Alias,
+    },
+}
+
+/// The `as Alias` clause of a declaration, with the alias token's span.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct DeclaredAlias {
+    pub alias: Alias,
+    pub span: ByteSpan,
+}
+
+impl DeclaredAlias {
+    pub fn shifted_by(self, offset: usize) -> Self {
+        Self {
+            alias: self.alias,
+            span: self.span.shifted_by(offset),
+        }
+    }
 }
 
 impl Marker {
@@ -60,6 +87,7 @@ impl Marker {
         match self.payload {
             MarkerPayload::Anchor { .. } => MarkerKind::Anchor,
             MarkerPayload::Ref { .. } => MarkerKind::Ref,
+            MarkerPayload::Use { .. } => MarkerKind::Use,
         }
     }
 }
@@ -83,4 +111,6 @@ pub enum MalformedReason {
     InvalidAnchorId { raw: String, reason: IdError },
     #[error("invalid target `{raw}`: {reason}")]
     InvalidTarget { raw: String, reason: TargetError },
+    #[error("invalid alias `{raw}`: {reason}")]
+    InvalidAlias { raw: String, reason: AliasError },
 }

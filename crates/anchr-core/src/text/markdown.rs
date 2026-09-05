@@ -151,6 +151,12 @@ mod tests {
     }
 
     #[test]
+    fn alias_uses_are_lexed_wherever_markers_are() {
+        let source = "# Title @[A]\n<!-- @[B] -->\n| @[C] | `@[D]` |\n@ref[a.md as E]\n";
+        assert_eq!(checked_bodies(source), vec!["A", "B", "C", "a.md as E"]);
+    }
+
+    #[test]
     fn fenced_code_blocks_are_not_checked() {
         let source = "before @ref[a.md]\n\n```\n@ref[in-fence.md]\n```\n\nafter @ref[b.md]\n";
         assert_eq!(checked_bodies(source), vec!["a.md", "b.md"]);

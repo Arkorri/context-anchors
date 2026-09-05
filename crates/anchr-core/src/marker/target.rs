@@ -1,10 +1,14 @@
-use super::{AnchorId, IdError, PathError, PathExpectation, RelPath, SymbolError, SymbolName};
+use super::{
+    Alias, AliasError, AnchorId, DeclaredAlias, IdError, PathError, PathExpectation, RelPath,
+    SymbolError, SymbolName,
+};
 use crate::root::{RootName, RootNameError, is_root_name_char};
 use crate::span::ByteSpan;
 
 /// What an `@ref[...]` body points at.
 ///
 /// ```text
+/// ref    := target [ws "as" ws alias]
 /// target := [root ":"] body
 /// body   := "#" anchor_id | rel_path "#" symbol_name | rel_path ["/"]
 /// ```
@@ -63,6 +67,8 @@ pub struct ParsedTarget {
     pub target: RefTarget,
     /// For anchor targets, the id's byte span relative to the start of the body.
     pub id_span: Option<ByteSpan>,
+    /// The `as Alias` clause, its span relative to the start of the body.
+    pub alias: Option<DeclaredAlias>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Hash, thiserror::Error)]
@@ -73,6 +79,10 @@ pub enum TargetError {
     EmptyAfterRoot { root: String },
     #[error("nothing follows `#`; a symbol reference is written `path#Name`")]
     EmptySymbol,
+    #[error("a target has no spaces; to declare an alias write `target as Alias`")]
+    BadAliasClause,
+    #[error(transparent)]
+    Alias(AliasError),
     #[error(transparent)]
     Root(RootNameError),
     #[error(transparent)]
@@ -87,15 +97,73 @@ pub fn parse_target(body: &str) -> Result<ParsedTarget, TargetError> {
     if body.is_empty() {
         return Err(TargetError::Empty);
     }
-    let (root, rest, rest_offset) = split_root_prefix(body)?;
+    if !body.contains(char::is_whitespace) {
+        let (target, id_span) = parse_bare_target(body, 0)?;
+        return Ok(ParsedTarget {
+            target,
+            id_span,
+            alias: None,
+        });
+    }
+    let padded = body.starts_with(char::is_whitespace) || body.ends_with(char::is_whitespace);
+    match (whitespace_separated_tokens(body).as_slice(), padded) {
+        (
+            [
+                (target_start, target_text),
+                (_, "as"),
+                (alias_start, alias_text),
+            ],
+            false,
+        ) => {
+            let (target, id_span) = parse_bare_target(target_text, *target_start)?;
+            let alias = Alias::parse(alias_text).map_err(TargetError::Alias)?;
+            Ok(ParsedTarget {
+                target,
+                id_span,
+                alias: Some(DeclaredAlias {
+                    alias,
+                    span: ByteSpan::new(*alias_start, alias_start + alias_text.len()),
+                }),
+            })
+        }
+        _ => Err(TargetError::BadAliasClause),
+    }
+}
+
+/// Non-empty runs of non-whitespace, each with its byte offset into `body`.
+fn whitespace_separated_tokens(body: &str) -> Vec<(usize, &str)> {
+    let mut tokens = Vec::new();
+    let mut start = None;
+    for (offset, ch) in body.char_indices() {
+        if ch.is_whitespace() {
+            if let Some(token_start) = start.take() {
+                tokens.push((token_start, &body[token_start..offset]));
+            }
+        } else if start.is_none() {
+            start = Some(offset);
+        }
+    }
+    if let Some(token_start) = start {
+        tokens.push((token_start, &body[token_start..]));
+    }
+    tokens
+}
+
+/// Parses a whitespace-free target. Spans are relative to the body; `offset` is where the
+/// target token starts in it, so an id span ends at the token's end, never at the body's.
+fn parse_bare_target(
+    text: &str,
+    offset: usize,
+) -> Result<(RefTarget, Option<ByteSpan>), TargetError> {
+    let (root, rest, rest_offset) = split_root_prefix(text)?;
 
     if let Some(id_text) = rest.strip_prefix('#') {
         let id = AnchorId::parse(id_text).map_err(TargetError::Id)?;
-        let id_start = rest_offset + 1;
-        return Ok(ParsedTarget {
-            target: RefTarget::Anchor { root, id },
-            id_span: Some(ByteSpan::new(id_start, body.len())),
-        });
+        let id_start = offset + rest_offset + 1;
+        return Ok((
+            RefTarget::Anchor { root, id },
+            Some(ByteSpan::new(id_start, offset + text.len())),
+        ));
     }
 
     if let Some((path_text, name_text)) = rest.split_once('#') {
@@ -104,10 +172,7 @@ pub fn parse_target(body: &str) -> Result<ParsedTarget, TargetError> {
         }
         let path = RelPath::parse(path_text).map_err(TargetError::Path)?;
         let name = SymbolName::parse(name_text).map_err(TargetError::Symbol)?;
-        return Ok(ParsedTarget {
-            target: RefTarget::Symbol { root, path, name },
-            id_span: None,
-        });
+        return Ok((RefTarget::Symbol { root, path, name }, None));
     }
 
     let (path_text, expects) = match rest.strip_suffix('/') {
@@ -115,14 +180,14 @@ pub fn parse_target(body: &str) -> Result<ParsedTarget, TargetError> {
         None => (rest, PathExpectation::Any),
     };
     let path = RelPath::parse(path_text).map_err(TargetError::Path)?;
-    Ok(ParsedTarget {
-        target: RefTarget::Path {
+    Ok((
+        RefTarget::Path {
             root,
             path,
             expects,
         },
-        id_span: None,
-    })
+        None,
+    ))
 }
 
 /// A leading `name:` is a root prefix only when `name` is root-shaped; otherwise the `:` is
@@ -190,6 +255,7 @@ mod tests {
                     id: AnchorId::parse("auth/token-refresh").unwrap()
                 },
                 id_span: Some(ByteSpan::new(1, 19)),
+                alias: None,
             }
         );
     }
@@ -204,6 +270,7 @@ mod tests {
                     id: AnchorId::parse("auth/flow").unwrap()
                 },
                 id_span: Some(ByteSpan::new(8, 17)),
+                alias: None,
             }
         );
         assert_eq!(
@@ -257,9 +324,90 @@ mod tests {
             parse_target("/x.md"),
             Err(TargetError::Path(PathError::Absolute))
         );
+        assert_eq!(parse_target("a b.md"), Err(TargetError::BadAliasClause));
+    }
+
+    fn alias(name: &str, start: usize) -> Option<DeclaredAlias> {
+        Some(DeclaredAlias {
+            alias: Alias::parse(name).unwrap(),
+            span: ByteSpan::new(start, start + name.len()),
+        })
+    }
+
+    #[test]
+    fn an_alias_clause_binds_a_name_and_keeps_spans_on_the_target_token() {
         assert_eq!(
-            parse_target("a b.md"),
-            Err(TargetError::Path(PathError::InvalidChar { ch: ' ' }))
+            parse_target("#auth/flow as Flow").unwrap(),
+            ParsedTarget {
+                target: RefTarget::Anchor {
+                    root: None,
+                    id: AnchorId::parse("auth/flow").unwrap()
+                },
+                id_span: Some(ByteSpan::new(1, 10)),
+                alias: alias("Flow", 14),
+            }
+        );
+        assert_eq!(
+            parse_target("claude:#auth/flow as Flow").unwrap(),
+            ParsedTarget {
+                target: RefTarget::Anchor {
+                    root: root("claude"),
+                    id: AnchorId::parse("auth/flow").unwrap()
+                },
+                id_span: Some(ByteSpan::new(8, 17)),
+                alias: alias("Flow", 21),
+            }
+        );
+        let symbol = parse_target("src/x.rs#run as Run").unwrap();
+        assert!(matches!(symbol.target, RefTarget::Symbol { .. }));
+        assert_eq!(symbol.alias, alias("Run", 16));
+        let directory = parse_target("docs/ as Docs").unwrap();
+        assert!(matches!(
+            directory.target,
+            RefTarget::Path {
+                expects: PathExpectation::Directory,
+                ..
+            }
+        ));
+        assert_eq!(parse_target("a.md\tas\tA").unwrap().alias, alias("A", 8));
+        assert_eq!(parse_target("a.md  as   A").unwrap().alias, alias("A", 11));
+    }
+
+    #[test]
+    fn as_inside_a_path_is_not_a_clause() {
+        let parsed = parse_target("src/as/x.rs").unwrap();
+        assert_eq!(parsed.alias, None);
+        assert!(matches!(parsed.target, RefTarget::Path { .. }));
+    }
+
+    #[test]
+    fn rejects_each_malformed_alias_clause() {
+        for body in [
+            "a.md as",
+            "as A",
+            "a.md as A B",
+            "a.md AS A",
+            " a.md",
+            "a.md ",
+            " a.md as A",
+        ] {
+            assert_eq!(
+                parse_target(body),
+                Err(TargetError::BadAliasClause),
+                "{body:?}"
+            );
+        }
+        assert_eq!(
+            parse_target("a.md as 9a"),
+            Err(TargetError::Alias(AliasError::InvalidStart { ch: '9' }))
+        );
+        assert_eq!(
+            parse_target("a b.md as A"),
+            Err(TargetError::BadAliasClause)
+        );
+        assert_eq!(
+            parse_target("#bad id as A"),
+            Err(TargetError::BadAliasClause)
         );
     }
 }
