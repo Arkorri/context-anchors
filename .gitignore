@@ -1,0 +1,11 @@
+# Rust
+/target/
+
+# npm packaging
+node_modules/
+
+# derived index — regenerable, never authoritative (see DESIGN.md §7)
+.anchr/
+
+# macOS
+.DS_Store
