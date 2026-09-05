@@ -8,7 +8,7 @@ use camino::Utf8PathBuf;
 
 use crate::config::UnverifiedPolicy;
 use crate::index::Site;
-use crate::marker::{AnchorId, MalformedReason, MarkerKind};
+use crate::marker::{Alias, AnchorId, MalformedReason, MarkerKind};
 use crate::resolve::{Unresolved, Unverified};
 use crate::root::{FilePath, RootName};
 use crate::scan::SkipReason;
@@ -27,6 +27,17 @@ pub enum DiagnosticKind {
     DuplicateAnchor {
         root: RootName,
         id: AnchorId,
+    },
+    /// `@[alias]` in a file that never declares it. Keyed by file, because the file is the scope.
+    AliasUndeclared {
+        root: RootName,
+        path: FilePath,
+        alias: Alias,
+    },
+    AliasDuplicate {
+        root: RootName,
+        path: FilePath,
+        alias: Alias,
     },
     Malformed {
         kind: MarkerKind,
@@ -54,6 +65,8 @@ impl DiagnosticKind {
         match self {
             DiagnosticKind::Unresolved(_)
             | DiagnosticKind::DuplicateAnchor { .. }
+            | DiagnosticKind::AliasUndeclared { .. }
+            | DiagnosticKind::AliasDuplicate { .. }
             | DiagnosticKind::Malformed { .. } => Severity::Error,
             DiagnosticKind::Unverified(_)
             | DiagnosticKind::ExternalDuplicate { .. }
@@ -90,6 +103,9 @@ impl DiagnosticKind {
             DiagnosticKind::ExternalDuplicate { root, .. } => {
                 Some(format!("fix the duplicate in root `{root}`; references to it still resolve"))
             }
+            DiagnosticKind::AliasUndeclared { alias, .. } => Some(format!(
+                "declare it once in this file: `@ref[target as {alias}]`"
+            )),
             _ => None,
         }
     }
@@ -126,6 +142,18 @@ impl fmt::Display for DiagnosticKind {
                 write!(
                     f,
                     "anchor id `{id}` is declared more than once in root `{root}`"
+                )
+            }
+            DiagnosticKind::AliasUndeclared { root, path, alias } => {
+                write!(
+                    f,
+                    "alias `{alias}` is not declared in `{path}` (root `{root}`)"
+                )
+            }
+            DiagnosticKind::AliasDuplicate { root, path, alias } => {
+                write!(
+                    f,
+                    "alias `{alias}` is declared more than once in `{path}` (root `{root}`)"
                 )
             }
             DiagnosticKind::Malformed { kind, reason } => write!(f, "malformed {kind}: {reason}"),
@@ -222,6 +250,9 @@ pub struct Diagnostic {
     pub severity: Severity,
     pub locations: Locations,
     pub suggestion: Option<String>,
+    /// Context that does not change the cause, such as how many alias uses a broken
+    /// declaration carries.
+    pub notes: Vec<String>,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
@@ -231,6 +262,8 @@ pub struct Summary {
     pub anchors: usize,
     pub refs_checked: usize,
     pub refs_resolved: usize,
+    /// `@[Alias]` sites bound to a declaration in their file; unbound ones are errors.
+    pub alias_uses: usize,
     pub errors: usize,
     pub unverified: usize,
 }
@@ -257,6 +290,7 @@ pub struct ReportBuilder {
     files: HashMap<DiagnosticKind, Vec<FileLocation>>,
     roots: HashMap<DiagnosticKind, Vec<RootName>>,
     suggestions: HashMap<DiagnosticKind, String>,
+    notes: HashMap<DiagnosticKind, Vec<String>>,
     order: Vec<DiagnosticKind>,
 }
 
@@ -280,6 +314,13 @@ impl ReportBuilder {
     pub fn suggestion(&mut self, kind: &DiagnosticKind, suggestion: Option<String>) {
         if let Some(suggestion) = suggestion {
             self.suggestions.entry(kind.clone()).or_insert(suggestion);
+        }
+    }
+
+    pub fn note(&mut self, kind: &DiagnosticKind, note: String) {
+        let notes = self.notes.entry(kind.clone()).or_default();
+        if !notes.contains(&note) {
+            notes.push(note);
         }
     }
 
@@ -307,11 +348,13 @@ impl ReportBuilder {
                 (severity, _) => severity,
             };
             let suggestion = self.suggestions.remove(&kind);
+            let notes = self.notes.remove(&kind).unwrap_or_default();
             diagnostics.push(Diagnostic {
                 kind,
                 severity,
                 locations,
                 suggestion,
+                notes,
             });
         }
         diagnostics.sort_by(|a, b| {
@@ -494,5 +537,16 @@ mod tests {
             malformed.to_string(),
             "malformed @ref: missing closing `]` on the same line"
         );
+        let undeclared = DiagnosticKind::AliasUndeclared {
+            root: RootName::parse("r").unwrap(),
+            path: FilePath::new(camino::Utf8PathBuf::from("docs/x.md")).unwrap(),
+            alias: Alias::parse("Analyser").unwrap(),
+        };
+        assert_eq!(
+            undeclared.to_string(),
+            "alias `Analyser` is not declared in `docs/x.md` (root `r`)"
+        );
+        assert_eq!(undeclared.base_severity(), Severity::Error);
+        assert!(undeclared.hint().unwrap().contains("as Analyser]"));
     }
 }

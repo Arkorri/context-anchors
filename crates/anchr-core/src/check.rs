@@ -10,10 +10,12 @@ use crate::diagnostic::{
     DiagnosticKind, FileLocation, LocatedSite, Report, ReportBuilder, Summary,
 };
 use crate::index::{Index, Site};
+use crate::marker::Alias;
 use crate::resolve::{IndexedRoot, IndexedRoots, Resolution, Resolver};
 use crate::root::{FilePath, RootName, RootSet, RootSetError};
 use crate::scan::{ScanError, ScanMode, SkippedFile, WalkProblem, scan_root};
 use crate::span::PositionOverflow;
+use crate::suggest::suggest;
 use crate::text::{AnalyzeError, Container, FileAnalyzer, LanguageRegistry, RegistryError};
 
 #[derive(Debug, Clone, Default)]
@@ -175,18 +177,60 @@ pub fn check(workspace: &Workspace, options: &CheckOptions) -> Result<Report, Ch
             continue;
         }
         summary.refs_checked += 1;
+        let path = reference.site.path.clone();
         let located = locate(current_index, reference.site)?;
-        match resolver.resolve(&current_root.name, reference.target) {
-            Resolution::Resolved => summary.refs_resolved += 1,
+        let kind = match resolver.resolve(&current_root.name, reference.target) {
+            Resolution::Resolved => {
+                summary.refs_resolved += 1;
+                continue;
+            }
             Resolution::Unresolved(unresolved) => {
                 let suggestion = resolver.suggest(&unresolved);
                 let kind = DiagnosticKind::Unresolved(unresolved);
                 builder.suggestion(&kind, suggestion);
-                builder.site(kind, located);
+                kind
             }
-            Resolution::Unverified(unverified) => {
-                builder.site(DiagnosticKind::Unverified(unverified), located);
-            }
+            Resolution::Unverified(unverified) => DiagnosticKind::Unverified(unverified),
+        };
+        if let Some(alias) = reference.declares {
+            note_alias_uses(&mut builder, &kind, current_index, &path, alias);
+        }
+        builder.site(kind, located);
+    }
+
+    for use_site in current_index.alias_uses() {
+        if !in_scope(&use_site.site) {
+            continue;
+        }
+        if use_site.binding.is_some() {
+            summary.alias_uses += 1;
+            continue;
+        }
+        let path = use_site.site.path.clone();
+        let kind = DiagnosticKind::AliasUndeclared {
+            root: current_root.name.clone(),
+            path: path.clone(),
+            alias: use_site.alias.clone(),
+        };
+        let declared: Vec<&str> = current_index
+            .file_record(&path)
+            .map(|record| record.aliases.aliases().map(Alias::as_str).collect())
+            .unwrap_or_default();
+        builder.suggestion(&kind, suggest(use_site.alias.as_str(), declared));
+        builder.site(kind, locate(current_index, use_site.site)?);
+    }
+
+    for (path, alias, sites) in current_index.duplicate_aliases() {
+        if !options.only_files.is_empty() && !options.only_files.contains(path) {
+            continue;
+        }
+        let kind = DiagnosticKind::AliasDuplicate {
+            root: current_root.name.clone(),
+            path: path.clone(),
+            alias: alias.clone(),
+        };
+        for site in sites {
+            builder.site(kind.clone(), locate(current_index, site)?);
         }
     }
 
@@ -232,6 +276,24 @@ pub fn check(workspace: &Workspace, options: &CheckOptions) -> Result<Report, Ch
     }
 
     Ok(builder.finish(policy, summary, workspace.root_dirs()))
+}
+
+/// A broken declaration is reported once, at the declaration; the note keeps its uses visible.
+fn note_alias_uses(
+    builder: &mut ReportBuilder,
+    kind: &DiagnosticKind,
+    index: &Index,
+    path: &FilePath,
+    alias: &Alias,
+) {
+    let uses = index.alias_use_count(path, alias);
+    if uses > 0 {
+        let plural = if uses == 1 { "" } else { "s" };
+        builder.note(
+            kind,
+            format!("alias `{alias}` has {uses} use{plural} in `{path}`"),
+        );
+    }
 }
 
 fn record_scan_findings(builder: &mut ReportBuilder, root: &RootName, findings: &ScanFindings) {
@@ -283,7 +345,7 @@ mod tests {
 
     use super::*;
     use crate::config;
-    use crate::diagnostic::{Locations, Severity};
+    use crate::diagnostic::{Diagnostic, Locations, Severity};
     use crate::resolve::{Unresolved, Unverified};
 
     struct Fixture {
@@ -436,7 +498,7 @@ mod tests {
         fs::write(repo.join("a.md"), "@ref[plugin:#skill] @ref[plugin:#twice]").unwrap();
         fs::write(
             plugin.join("SKILL.md"),
-            "@anchor[skill] @anchor[twice] @anchor[twice] @ref[#nonexistent-but-not-ours] @ref[",
+            "@anchor[skill] @anchor[twice] @anchor[twice] @ref[#nonexistent-but-not-ours] @ref[ @[Nope]",
         )
         .unwrap();
 
@@ -474,5 +536,77 @@ mod tests {
             .unwrap();
         assert_eq!(duplicate.locations.len(), 2);
         assert_eq!(report.summary.refs_checked, 1);
+    }
+
+    #[test]
+    fn alias_uses_bind_in_their_file_and_report_undeclared_and_duplicates() {
+        let fixture = Fixture::new(&[
+            (
+                "a.md",
+                "@anchor[x]\n@ref[#x as X] @[X] @[X] @[Y]\n@ref[#x as Z] @ref[#x as Z] @[Z]\n",
+            ),
+            ("b.md", "@ref[#nope as Nope] @[Nope] @[X]\n"),
+        ]);
+        let report = fixture.check(&CheckOptions::default());
+        assert_eq!(report.summary.refs_checked, 4);
+        assert_eq!(report.summary.refs_resolved, 3);
+        assert_eq!(report.summary.alias_uses, 4, "{:?}", titles(&report));
+
+        let undeclared: Vec<&Diagnostic> = report
+            .diagnostics
+            .iter()
+            .filter(|d| matches!(d.kind, DiagnosticKind::AliasUndeclared { .. }))
+            .collect();
+        assert_eq!(undeclared.len(), 2, "{:?}", titles(&report));
+        let in_a = undeclared
+            .iter()
+            .find(|d| matches!(&d.kind, DiagnosticKind::AliasUndeclared { path, .. } if path.as_str() == "a.md"))
+            .unwrap();
+        assert!(in_a.suggestion.is_some());
+        assert_eq!(in_a.locations.len(), 1);
+        let in_b = undeclared
+            .iter()
+            .find(|d| matches!(&d.kind, DiagnosticKind::AliasUndeclared { path, .. } if path.as_str() == "b.md"))
+            .unwrap();
+        assert_eq!(in_b.suggestion, None);
+
+        let duplicate = report
+            .diagnostics
+            .iter()
+            .find(|d| matches!(d.kind, DiagnosticKind::AliasDuplicate { .. }))
+            .unwrap();
+        assert_eq!(duplicate.locations.len(), 2);
+
+        let missing = report
+            .diagnostics
+            .iter()
+            .find(|d| {
+                matches!(
+                    d.kind,
+                    DiagnosticKind::Unresolved(Unresolved::AnchorMissing { .. })
+                )
+            })
+            .unwrap();
+        assert_eq!(missing.locations.len(), 1);
+        assert_eq!(
+            missing.notes,
+            vec!["alias `Nope` has 1 use in `b.md`".to_owned()]
+        );
+        assert!(report.has_errors());
+
+        let scoped = fixture.check(&CheckOptions {
+            only_files: vec![FilePath::new(Utf8PathBuf::from("a.md")).unwrap()],
+            ..CheckOptions::default()
+        });
+        assert_eq!(scoped.summary.alias_uses, 3);
+        assert_eq!(
+            titles(&scoped)
+                .iter()
+                .filter(|t| t.contains("b.md"))
+                .count(),
+            0,
+            "{:?}",
+            titles(&scoped)
+        );
     }
 }

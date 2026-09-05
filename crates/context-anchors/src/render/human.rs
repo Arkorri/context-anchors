@@ -75,6 +75,9 @@ fn group_for<'a>(diagnostic: &'a Diagnostic, source: Option<&'a str>) -> Group<'
     if let Some(hint) = diagnostic.kind.hint() {
         group = group.element(Level::HELP.message(hint));
     }
+    for note in &diagnostic.notes {
+        group = group.element(Level::NOTE.message(note.as_str()));
+    }
     group
 }
 
@@ -91,10 +94,15 @@ fn first_site_source(report: &Report, diagnostic: &Diagnostic) -> Option<String>
 
 fn write_summary(out: &mut impl Write, report: &Report) -> std::io::Result<()> {
     let summary = report.summary;
+    let alias_uses = match summary.alias_uses {
+        0 => String::new(),
+        uses => format!(" and {uses} alias uses"),
+    };
     writeln!(
         out,
-        "checked {} references in {} files ({} anchors): {} resolved, {} errors, {} unverified",
+        "checked {} references{} in {} files ({} anchors): {} resolved, {} errors, {} unverified",
         summary.refs_checked,
+        alias_uses,
         summary.files_scanned,
         summary.anchors,
         summary.refs_resolved,

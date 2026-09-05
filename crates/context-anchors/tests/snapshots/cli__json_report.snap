@@ -5,6 +5,31 @@ expression: scrubbed
 {
   "diagnostics": [
     {
+      "code": "alias-duplicate",
+      "locations": [
+        {
+          "byte_end": 53,
+          "byte_start": 38,
+          "col": 39,
+          "line": 1,
+          "path": "docs/b.md",
+          "region": "prose",
+          "root": "repo"
+        },
+        {
+          "byte_end": 69,
+          "byte_start": 54,
+          "col": 55,
+          "line": 1,
+          "path": "docs/b.md",
+          "region": "prose",
+          "root": "repo"
+        }
+      ],
+      "message": "alias `D` is declared more than once in `docs/b.md` (root `repo`)",
+      "severity": "error"
+    },
+    {
       "code": "duplicate-anchor",
       "locations": [
         {
@@ -27,6 +52,23 @@ expression: scrubbed
         }
       ],
       "message": "anchor id `dup` is declared more than once in root `repo`",
+      "severity": "error"
+    },
+    {
+      "code": "alias-undeclared",
+      "hint": "declare it once in this file: `@ref[target as Nope]`",
+      "locations": [
+        {
+          "byte_end": 57,
+          "byte_start": 50,
+          "col": 51,
+          "line": 1,
+          "path": "docs/a.md",
+          "region": "prose",
+          "root": "repo"
+        }
+      ],
+      "message": "alias `Nope` is not declared in `docs/a.md` (root `repo`)",
       "severity": "error"
     },
     {
@@ -120,11 +162,12 @@ expression: scrubbed
   ],
   "schema": 1,
   "summary": {
+    "alias_uses": 1,
     "anchors": 2,
-    "errors": 4,
+    "errors": 6,
     "files_scanned": 3,
-    "refs_checked": 3,
-    "refs_resolved": 0,
+    "refs_checked": 5,
+    "refs_resolved": 2,
     "roots_scanned": 1,
     "strict": false,
     "unverified": 2
