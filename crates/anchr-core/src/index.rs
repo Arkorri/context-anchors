@@ -197,6 +197,10 @@ impl Index {
         self.files.get(path)
     }
 
+    pub fn file_paths(&self) -> impl Iterator<Item = &FilePath> {
+        self.files.keys()
+    }
+
     pub fn file_count(&self) -> usize {
         self.files.len()
     }

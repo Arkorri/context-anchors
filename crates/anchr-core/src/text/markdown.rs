@@ -11,22 +11,60 @@ const OPTIONS: Options = Options::ENABLE_TABLES
     .union(Options::ENABLE_TASKLISTS)
     .union(Options::ENABLE_HEADING_ATTRIBUTES);
 
+/// The byte ranges of a markdown document that are not prose.
+struct Structure {
+    code_blocks: Vec<ByteSpan>,
+    code_spans: Vec<ByteSpan>,
+    links: Vec<ByteSpan>,
+}
+
 /// Everything except code blocks and code spans. Built as the complement of the excluded
 /// ranges rather than from `Text` events, because pulldown splits text at escapes, entities,
 /// and bracket characters, and a marker must never be lost to a split.
 pub(crate) fn text_regions(source: &str) -> Result<TextRegions, AnalyzeError> {
-    let excluded = excluded_spans(source)?;
-    Ok(complement(source.len(), excluded))
+    let structure = structure(source)?;
+    let mut excluded = structure.code_blocks;
+    excluded.extend(structure.code_spans);
+    Ok(TextRegions::new(complement(
+        source.len(),
+        excluded,
+        RegionKind::Prose,
+    )))
+}
+
+/// Prose plus code spans (as `InlineCode`), minus code blocks and links.
+pub(crate) fn coverage_regions(source: &str) -> Result<TextRegions, AnalyzeError> {
+    let structure = structure(source)?;
+    let mut excluded = structure.code_blocks;
+    excluded.extend(structure.links.iter().copied());
+    excluded.extend(structure.code_spans.iter().copied());
+    let mut regions = complement(source.len(), excluded, RegionKind::Prose);
+    let links = structure.links;
+    regions.extend(
+        structure
+            .code_spans
+            .into_iter()
+            .filter(|span| !links.iter().any(|link| link.intersects(*span)))
+            .map(|span| TextRegion {
+                span,
+                kind: RegionKind::InlineCode,
+            }),
+    );
+    Ok(TextRegions::new(regions))
 }
 
 /// pulldown-cmark's offset iterator panics on some malformed documents
 /// (pulldown-cmark/pulldown-cmark#1129); a hostile file must not take the whole check down.
-fn excluded_spans(source: &str) -> Result<Vec<ByteSpan>, AnalyzeError> {
-    catch_unwind(|| collect_excluded_spans(source)).map_err(|_| AnalyzeError::ParserPanicked)
+fn structure(source: &str) -> Result<Structure, AnalyzeError> {
+    catch_unwind(|| collect_structure(source)).map_err(|_| AnalyzeError::ParserPanicked)
 }
 
-fn collect_excluded_spans(source: &str) -> Vec<ByteSpan> {
-    let mut excluded: Vec<ByteSpan> = Vec::new();
+fn collect_structure(source: &str) -> Structure {
+    let mut structure = Structure {
+        code_blocks: Vec::new(),
+        code_spans: Vec::new(),
+        links: Vec::new(),
+    };
     let mut open_code_block_start: Option<usize> = None;
 
     for (event, range) in Parser::new_ext(source, OPTIONS).into_offset_iter() {
@@ -36,40 +74,44 @@ fn collect_excluded_spans(source: &str) -> Vec<ByteSpan> {
             }
             Event::End(TagEnd::CodeBlock) => {
                 if let Some(start) = open_code_block_start.take() {
-                    excluded.push(ByteSpan::new(start, range.end));
+                    structure.code_blocks.push(ByteSpan::new(start, range.end));
                 }
             }
-            Event::Code(_) => excluded.push(ByteSpan::from(range)),
+            Event::Code(_) => structure.code_spans.push(ByteSpan::from(range)),
+            Event::Start(Tag::Link { .. } | Tag::Image { .. }) => {
+                structure.links.push(ByteSpan::from(range));
+            }
             _ => {}
         }
     }
     if let Some(start) = open_code_block_start {
-        excluded.push(ByteSpan::new(start, source.len()));
+        structure
+            .code_blocks
+            .push(ByteSpan::new(start, source.len()));
     }
-    excluded
+    structure
 }
 
-fn complement(len: usize, mut excluded: Vec<ByteSpan>) -> TextRegions {
+fn complement(len: usize, mut excluded: Vec<ByteSpan>, kind: RegionKind) -> Vec<TextRegion> {
     excluded.sort_by_key(|span| span.start);
     let mut included = Vec::with_capacity(excluded.len() + 1);
     let mut cursor = 0;
     for span in excluded {
         if span.start > cursor {
-            included.push(prose(cursor, span.start));
+            included.push(TextRegion {
+                span: ByteSpan::new(cursor, span.start),
+                kind,
+            });
         }
         cursor = cursor.max(span.end);
     }
     if cursor < len {
-        included.push(prose(cursor, len));
+        included.push(TextRegion {
+            span: ByteSpan::new(cursor, len),
+            kind,
+        });
     }
-    TextRegions::new(included)
-}
-
-fn prose(start: usize, end: usize) -> TextRegion {
-    TextRegion {
-        span: ByteSpan::new(start, end),
-        kind: RegionKind::Prose,
-    }
+    included
 }
 
 #[cfg(test)]
@@ -94,6 +136,10 @@ mod tests {
         let minimized_fuzz_input = "*\t[G]:`\n\t\t";
         assert!(matches!(
             text_regions(minimized_fuzz_input),
+            Err(AnalyzeError::ParserPanicked)
+        ));
+        assert!(matches!(
+            coverage_regions(minimized_fuzz_input),
             Err(AnalyzeError::ParserPanicked)
         ));
     }
@@ -163,5 +209,25 @@ mod tests {
     fn a_file_that_is_all_code_yields_no_markers() {
         assert!(checked_bodies("```\n@ref[x.md]\n```\n").is_empty());
         assert!(text_regions("").unwrap().is_empty());
+    }
+
+    #[test]
+    fn coverage_regions_keep_code_spans_but_drop_links_and_blocks() {
+        let source = "See `docs/a.md` and [guide](docs/guide.md) here.\n\n```\n`fenced.md`\n```\n";
+        let regions: Vec<(RegionKind, &str)> = coverage_regions(source)
+            .unwrap()
+            .iter()
+            .map(|region| (region.kind, &source[region.span.start..region.span.end]))
+            .collect();
+        assert_eq!(
+            regions,
+            vec![
+                (RegionKind::Prose, "See "),
+                (RegionKind::InlineCode, "`docs/a.md`"),
+                (RegionKind::Prose, " and "),
+                (RegionKind::Prose, " here.\n\n"),
+                (RegionKind::Prose, "\n"),
+            ]
+        );
     }
 }

@@ -7,7 +7,9 @@
 
 pub mod check;
 pub mod config;
+pub mod coverage;
 pub mod diagnostic;
+pub mod edit;
 pub mod index;
 pub mod marker;
 pub mod rename;

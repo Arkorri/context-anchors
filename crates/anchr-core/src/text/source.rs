@@ -40,6 +40,22 @@ impl SymbolTable {
     }
 }
 
+/// Every comment node, backtick spans included; what the coverage scanner looks at.
+pub(crate) fn raw_comment_regions(spec: &LanguageSpec, tree: &Tree, source: &str) -> TextRegions {
+    let mut cursor = QueryCursor::new();
+    let mut matches = cursor.matches(spec.comment_query(), tree.root_node(), source.as_bytes());
+    let mut regions = Vec::new();
+    while let Some(found) = matches.next() {
+        for capture in found.captures() {
+            regions.push(TextRegion {
+                span: ByteSpan::from(capture.node.byte_range()),
+                kind: RegionKind::Comment,
+            });
+        }
+    }
+    TextRegions::new(regions)
+}
+
 /// Comment nodes, minus backtick-delimited spans inside them: doc comments are markdown by
 /// convention, and `` `@ref[x]` `` in one is an example, not a reference.
 pub(crate) fn comment_regions(spec: &LanguageSpec, tree: &Tree, source: &str) -> TextRegions {

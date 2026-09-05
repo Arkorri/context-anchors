@@ -4,9 +4,12 @@
 
 use std::io::Write;
 
+use anchr_core::check::locate;
+use anchr_core::coverage::{CandidateKind, CoverageReport};
 use anchr_core::diagnostic::{
     Diagnostic, DiagnosticKind, LocatedSite, Locations, Report, Severity,
 };
+use anchr_core::index::Index;
 use anchr_core::resolve::{Unresolved, Unverified};
 use anchr_core::text::RegionKind;
 use serde::Serialize;
@@ -192,7 +195,104 @@ fn region_name(region: RegionKind) -> &'static str {
         RegionKind::Prose => "prose",
         RegionKind::Comment => "comment",
         RegionKind::Whole => "plaintext",
+        RegionKind::InlineCode => "inline-code",
     }
+}
+
+/// The `coverage` report.
+pub fn write_coverage(
+    out: &mut impl Write,
+    index: &Index,
+    report: &CoverageReport,
+) -> anyhow::Result<()> {
+    let mut candidates = Vec::with_capacity(report.candidates.len());
+    for candidate in &report.candidates {
+        let located = locate(index, candidate.site.clone())?;
+        let (kind, replacement, reason, declared_in) = match &candidate.kind {
+            CandidateKind::Proposal { replacement } => {
+                ("proposal", Some(replacement.clone()), None, Vec::new())
+            }
+            CandidateKind::Unresolvable { reason } => {
+                ("unresolvable", None, Some(reason.clone()), Vec::new())
+            }
+            CandidateKind::Ambiguous { declared_in } => (
+                "ambiguous",
+                None,
+                None,
+                declared_in.iter().map(ToString::to_string).collect(),
+            ),
+        };
+        candidates.push(JsonCandidate {
+            kind,
+            text: candidate.text.clone(),
+            replacement,
+            reason,
+            declared_in,
+            location: JsonOwnedLocation {
+                root: located.site.root.to_string(),
+                path: located.site.path.to_string(),
+                line: located.line_col.line,
+                col: located.line_col.col,
+                byte_start: located.site.span.start,
+                byte_end: located.site.span.end,
+                region: region_name(located.site.region),
+            },
+        });
+    }
+    let json = JsonCoverage {
+        schema: SCHEMA_VERSION,
+        summary: JsonCoverageSummary {
+            annotated_refs: report.summary.annotated_refs,
+            total: report.summary.total(),
+            proposals: report.summary.proposals,
+            unresolvable: report.summary.unresolvable,
+            ambiguous: report.summary.ambiguous,
+        },
+        candidates,
+    };
+    serde_json::to_writer_pretty(&mut *out, &json)?;
+    writeln!(out)?;
+    Ok(())
+}
+
+#[derive(Serialize)]
+struct JsonCoverage {
+    schema: u32,
+    summary: JsonCoverageSummary,
+    candidates: Vec<JsonCandidate>,
+}
+
+#[derive(Serialize)]
+struct JsonCoverageSummary {
+    annotated_refs: usize,
+    total: usize,
+    proposals: usize,
+    unresolvable: usize,
+    ambiguous: usize,
+}
+
+#[derive(Serialize)]
+struct JsonCandidate {
+    kind: &'static str,
+    text: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    replacement: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    reason: Option<String>,
+    #[serde(skip_serializing_if = "Vec::is_empty")]
+    declared_in: Vec<String>,
+    location: JsonOwnedLocation,
+}
+
+#[derive(Serialize)]
+struct JsonOwnedLocation {
+    root: String,
+    path: String,
+    line: u32,
+    col: u32,
+    byte_start: usize,
+    byte_end: usize,
+    region: &'static str,
 }
 
 /// Stable identifiers for consumers; adding a kind adds a code, never renames one.

@@ -52,7 +52,16 @@ anchr init --agent claude  # also wires a Claude Code PostToolUse hook that runs
 anchr check                # exit 0 clean, 1 broken references, 2 tool failure
 anchr check --format json  # stable machine-readable report
 anchr check --strict       # unverified findings fail too
+anchr backrefs '#auth/flow'         # every reference to a target
+anchr rename auth/flow auth/session # rewrite an anchor id everywhere (--dry-run to preview)
+anchr coverage             # reference-shaped strings that carry no marker; never fails
+anchr annotate --write     # add @ref markers where the target resolves
+anchr lsp                  # language server for any LSP-capable editor
 ```
+
+The language server speaks stdio. Point your editor's generic LSP client at `anchr lsp` for
+Markdown and the supported source languages to get diagnostics, go-to-definition on
+`@ref[...]`, find-references and rename on anchors, and anchors as document symbols.
 
 Targets a reference can name:
 

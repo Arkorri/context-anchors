@@ -54,6 +54,11 @@ anchr check                    human-readable report; exit 1 on errors
 anchr check --format json      machine-readable report (schema 1)
 anchr check --strict           unverified findings (missing root, no grammar) also fail
 anchr check path/to/file.md    report only references in the given files
+anchr backrefs '#some-id'      every reference to a target
+anchr rename old-id new-id     rewrite an anchor id and every reference to it (--dry-run first)
+anchr coverage                 reference-shaped strings with no marker; never fails
+anchr annotate [--write]       propose (or apply) @ref markers where the target resolves
+anchr lsp                      language server: diagnostics, go-to-definition, references, rename
 ```
 
 Exit codes: 0 clean, 1 broken references, 2 the tool could not run (bad config).

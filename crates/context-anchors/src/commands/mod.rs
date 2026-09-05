@@ -1,11 +1,14 @@
+pub mod annotate;
 pub mod backrefs;
 pub mod check;
 pub mod completions;
+pub mod coverage;
 pub mod init;
 pub mod rename;
 
 use anchr_core::config::{self, Discovered};
-use anyhow::Context;
+use anchr_core::root::FilePath;
+use anyhow::{Context, bail};
 use camino::{Utf8Component, Utf8Path, Utf8PathBuf};
 
 /// What a command wants the process to exit with.
@@ -49,4 +52,23 @@ pub fn discover(cwd: &Utf8Path, root: Option<&Utf8Path>) -> anyhow::Result<Disco
         None => cwd.to_path_buf(),
     };
     Ok(config::discover(&start)?)
+}
+
+/// `PATHS` arguments as typed from the shell, expressed relative to the discovered root.
+pub fn files_in_root(
+    cwd: &Utf8Path,
+    root_dir: &Utf8Path,
+    paths: &[Utf8PathBuf],
+) -> anyhow::Result<Vec<FilePath>> {
+    paths
+        .iter()
+        .map(|path| {
+            let absolute = absolute(cwd, path);
+            let Ok(relative) = absolute.strip_prefix(root_dir) else {
+                bail!("{path} is outside the root {root_dir}");
+            };
+            FilePath::new(relative.to_path_buf())
+                .with_context(|| format!("{path} is not a file path inside the root"))
+        })
+        .collect()
 }
