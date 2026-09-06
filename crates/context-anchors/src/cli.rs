@@ -23,6 +23,8 @@ pub enum Command {
     Rename(RenameArgs),
     /// Write an `anchr.toml`, the marker guide for agents, and optional editor hooks.
     Init(InitArgs),
+    /// Run a Language Server Protocol server over stdio.
+    Lsp,
     /// Print a shell completion script.
     Completions(CompletionsArgs),
 }

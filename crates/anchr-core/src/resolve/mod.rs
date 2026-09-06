@@ -166,6 +166,13 @@ impl IndexedRoots {
         }
     }
 
+    pub fn current_mut(&mut self) -> (&Root, &mut Index) {
+        match self.roots.get_mut(&self.current) {
+            Some(IndexedRoot::Present { root, index }) => (&**root, index),
+            _ => unreachable!("current root is always present"),
+        }
+    }
+
     pub fn names(&self) -> impl Iterator<Item = &RootName> {
         self.roots.keys()
     }

@@ -196,7 +196,7 @@ fn region_name(region: RegionKind) -> &'static str {
 }
 
 /// Stable identifiers for consumers; adding a kind adds a code, never renames one.
-fn code(kind: &DiagnosticKind) -> &'static str {
+pub fn code(kind: &DiagnosticKind) -> &'static str {
     match kind {
         DiagnosticKind::Unresolved(unresolved) => match unresolved {
             Unresolved::PathMissing { .. } => "path-missing",
