@@ -12,6 +12,7 @@ pub mod diagnostic;
 pub mod edit;
 pub mod index;
 pub mod marker;
+pub mod noref;
 pub mod rename;
 pub mod resolve;
 pub mod root;

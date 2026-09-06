@@ -1,5 +1,6 @@
 #!/usr/bin/env node
 // Builds the npm packages for one release from cargo-dist's manifest and archives:
+// @noref[bin/anchr.js, target/distrib, scripts/npm/build-packages.mjs]
 //
 //   @context-anchors/<os>-<cpu>   one per platform, holding just the binary
 //   context-anchors               the shim: `bin/anchr.js` plus optionalDependencies on each

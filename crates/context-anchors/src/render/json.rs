@@ -227,6 +227,7 @@ pub fn write_coverage(
                 declared_in.iter().map(ToString::to_string).collect(),
             ),
             CandidateKind::UnusedAlias { .. } => ("unused-alias", None, None, Vec::new()),
+            CandidateKind::UnusedIgnore { .. } => ("unused-ignore", None, None, Vec::new()),
         };
         candidates.push(JsonCandidate {
             kind,
@@ -254,8 +255,15 @@ pub fn write_coverage(
             unresolvable: report.summary.unresolvable,
             ambiguous: report.summary.ambiguous,
             unused_aliases: report.summary.unused_aliases,
+            ignored: report.summary.ignored,
+            unused_ignores: report.summary.unused_ignores,
         },
         candidates,
+        unused_config_ignores: report
+            .unused_config_ignores
+            .iter()
+            .map(ToString::to_string)
+            .collect(),
     };
     serde_json::to_writer_pretty(&mut *out, &json)?;
     writeln!(out)?;
@@ -267,6 +275,9 @@ struct JsonCoverage {
     schema: u32,
     summary: JsonCoverageSummary,
     candidates: Vec<JsonCandidate>,
+    /// `[coverage] ignore` entries that matched nothing; they have no location.
+    #[serde(skip_serializing_if = "Vec::is_empty")]
+    unused_config_ignores: Vec<String>,
 }
 
 #[derive(Serialize)]
@@ -277,6 +288,8 @@ struct JsonCoverageSummary {
     unresolvable: usize,
     ambiguous: usize,
     unused_aliases: usize,
+    ignored: usize,
+    unused_ignores: usize,
 }
 
 #[derive(Serialize)]

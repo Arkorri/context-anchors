@@ -83,13 +83,14 @@ semantics exactly where they belong — on the identity — without making cosme
 ## 4. Grammar
 <!-- @anchor[design/grammar] -->
 
-The entire marker language is three productions.
+The entire marker language is four productions.
 
 ```
 @anchor[some-id]     declares an identity at this location
 @ref[target]         asserts that target resolves
 @ref[target as X]    the same, and names the target X within this file
 @[X]                 a use of that name, checked through its declaration
+@noref[a, b/, c.ts]  declares that these strings are not references in this file
 ```
 
 **Why `@anchor` rather than `@def`.** The static-analysis pair `@def`/`@ref` is more precise and
@@ -162,6 +163,33 @@ mention.
 - Aliases are ASCII identifiers. `@anchor` is never aliased; an anchor is the identity of a line.
 
 The full design, with the reasons behind each rule, is @ref[docs/design/aliases.md].
+
+### Ignores
+
+@[Coverage] reports reference-shaped strings that carry no marker. Some of them are correctly
+shaped and still not references: an example path in a guide, a file that exists in the reader's
+repository rather than this one, the product's own name. The author says so once, and the
+report stops asking.
+
+```markdown
+<!-- refs -->
+@noref[src/legacy/, foo.ts]
+```
+
+```toml
+[coverage]
+exclude = ["docs/research/**"]      # still checked; never asked for more annotation
+ignore  = ["CLAUDE.md", "AGENTS.md"] # never a reference anywhere in this root
+```
+
+- `@noref` is **file-scoped**, like an alias: the ignore travels with the text it protects.
+  Config `ignore` is root-wide. Matching is exact, plus the path of a `path#Symbol` token and a
+  trailing-`/` prefix; no globs.
+- An entry that matches nothing is reported by @[Coverage], the way an unused alias is. Ignore
+  lists rot otherwise.
+- @[Check] is untouched. Ignores remove coverage candidates; they never make anything resolve.
+
+The full design is @ref[docs/design/ignores.md].
 
 ### Markers in code
 
@@ -429,7 +457,10 @@ motivating use case ships in v1 for near-zero marginal work.
   symmetrical to the false-positive one: a document can be fully green because nobody annotated
   anything. Determinism gives soundness; it gives nothing on coverage. The scanner reports
   "43 of 210 reference-shaped strings are annotated" and proposes annotations. It never errors
-  and never writes on its own. This is also the migration path onto the tool.
+  and never writes on its own. This is also the migration path onto the tool. `@noref` and
+  `[coverage] ignore` let the author retire the candidates that are correctly shaped and still
+  not references, so the report can reach zero.
+
 - `anchr rename`, `anchr backrefs`
 
 ### v2

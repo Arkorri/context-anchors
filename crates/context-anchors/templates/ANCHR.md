@@ -11,6 +11,7 @@ that still uses the old name.
 @ref[target]            asserts that the target exists
 @ref[target as Alias]   the same, and names the target Alias within this file
 @[Alias]                a use of that name; checked through its declaration
+@noref[a, b/, c.ts]     these strings are not references in this file (coverage only)
 ```
 
 Markers are recognised in Markdown prose (not inside code fences or inline code), in source
@@ -19,6 +20,7 @@ an example without it being checked, put it in a code fence or inline code, or e
 `\@ref[...]` or `@ref\[...\]`.
 
 ## Targets
+<!-- @noref[src/, auth/token-refresh, file.rs] -->
 
 | Form | Meaning |
 |---|---|
@@ -60,6 +62,25 @@ When a file mentions one target many times, declare it once and use the name eve
   keep their name.
 - Name the thing the way this document talks about it. The alias does not have to match the
   code's spelling, so a rename in code is one edit per file.
+
+## Ignores
+
+`anchr coverage` lists reference-shaped strings that carry no marker. When one is correctly
+shaped and still not a reference (an example path, a file that lives in another repository),
+say so once and the report stops asking:
+
+```markdown
+<!-- refs -->
+@noref[src/legacy/, example.ts]
+```
+
+- `@noref` is file-scoped, like an alias. For strings that are never references anywhere, use
+  `ignore` under `[coverage]` in `anchr.toml`; `exclude` there keeps whole files checked but never
+  proposes annotations in them.
+- Entries are plain strings separated by commas: exact match, or the path of a `path#Name`
+  token, or a prefix when the entry ends in `/`. No globs.
+- An entry that matches nothing shows up in `anchr coverage`, like an unused alias. `anchr check`
+  never reports on ignores.
 
 ## When editing
 

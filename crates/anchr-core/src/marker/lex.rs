@@ -4,7 +4,7 @@ use regex::Regex;
 
 use super::{
     Alias, AnchorId, MalformedMarker, MalformedReason, Marker, MarkerKind, MarkerPayload,
-    parse_target,
+    parse_noref_body, parse_target,
 };
 use crate::span::ByteSpan;
 use crate::text::{TextRegion, TextRegions};
@@ -17,7 +17,8 @@ static MARKER: LazyLock<Regex> = LazyLock::new(|| {
         clippy::expect_used,
         reason = "the pattern is a literal, checked by tests"
     )]
-    Regex::new(r"@(anchor|ref|)\[(?:([^\[\]\n]*)\]|)").expect("marker regex is a valid literal")
+    Regex::new(r"@(anchor|ref|noref|)\[(?:([^\[\]\n]*)\]|)")
+        .expect("marker regex is a valid literal")
 });
 
 #[derive(Debug, Clone, PartialEq, Eq, Default)]
@@ -59,6 +60,7 @@ fn lex_region(source: &str, region: &TextRegion, lexed: &mut Lexed) -> Result<()
         let kind = match captures.get(1).map(|m| m.as_str()) {
             Some("anchor") => MarkerKind::Anchor,
             Some("ref") => MarkerKind::Ref,
+            Some("noref") => MarkerKind::NoRef,
             _ => MarkerKind::Use,
         };
         match captures.get(2) {
@@ -132,6 +134,17 @@ fn parse_body(
         MarkerKind::Use => Alias::parse(body)
             .map(|alias| MarkerPayload::Use { alias })
             .map_err(|reason| MalformedReason::InvalidAlias {
+                raw: body.to_owned(),
+                reason,
+            }),
+        MarkerKind::NoRef => parse_noref_body(body)
+            .map(|items| MarkerPayload::NoRef {
+                items: items
+                    .into_iter()
+                    .map(|item| item.shifted_by(body_span.start))
+                    .collect(),
+            })
+            .map_err(|reason| MalformedReason::InvalidNoRef {
                 raw: body.to_owned(),
                 reason,
             }),
@@ -336,7 +349,15 @@ mod tests {
         assert!(lex_all(r"\@[X]").markers.is_empty());
         assert!(lex_all(r"\@[X]").malformed.is_empty());
         assert_eq!(lex_all("(@[X])").markers.len(), 1);
-        for source in ["@reference[x.md]", "@anchors[x]", "@Ref[x.md]"] {
+        for source in [
+            "@reference[x.md]",
+            "@anchors[x]",
+            "@Ref[x.md]",
+            "@norefs[x]",
+            "@NoRef[x]",
+            "a@noref[x]",
+            r"\@noref[x]",
+        ] {
             let lexed = lex_all(source);
             assert!(lexed.markers.is_empty(), "{source}");
             assert!(lexed.malformed.is_empty(), "{source}");
@@ -345,9 +366,75 @@ mod tests {
 
     #[test]
     fn uses_and_declarations_survive_crlf() {
-        let lexed = lex_all("@[A]\r\n@ref[#a as A]\r\n");
-        assert_eq!(lexed.markers.len(), 2);
+        let lexed = lex_all("@[A]\r\n@ref[#a as A]\r\n@noref[a, b]\r\n");
+        assert_eq!(lexed.markers.len(), 3);
         assert!(lexed.malformed.is_empty());
+    }
+
+    #[test]
+    fn finds_noref_lists_with_exact_item_spans() {
+        let source = "héllo @noref[a, b/, c.ts#Name] and // @noref[x]";
+        let lexed = lex_all(source);
+        assert!(lexed.malformed.is_empty(), "{lexed:?}");
+        assert_eq!(lexed.markers.len(), 2);
+        let first = &lexed.markers[0];
+        assert_eq!(first.kind(), MarkerKind::NoRef);
+        assert_eq!(slice(source, first.span), "@noref[a, b/, c.ts#Name]");
+        assert_eq!(slice(source, first.body_span), "a, b/, c.ts#Name");
+        let MarkerPayload::NoRef { items } = &first.payload else {
+            panic!("expected a noref payload");
+        };
+        let texts: Vec<&str> = items.iter().map(|item| slice(source, item.span)).collect();
+        assert_eq!(texts, vec!["a", "b/", "c.ts#Name"]);
+        assert!(
+            items
+                .iter()
+                .all(|item| item.entry.as_str() == slice(source, item.span))
+        );
+        let MarkerPayload::NoRef { items } = &lexed.markers[1].payload else {
+            panic!("expected a noref payload");
+        };
+        assert_eq!(slice(source, items[0].span), "x");
+    }
+
+    #[test]
+    fn reports_malformed_noref_lists_by_reason() {
+        let empty = lex_all("@noref[]");
+        assert_eq!(empty.malformed[0].kind, MarkerKind::NoRef);
+        assert!(matches!(
+            empty.malformed[0].reason,
+            MalformedReason::EmptyBody
+        ));
+        for source in [
+            "@noref[ a]",
+            "@noref[a ]",
+            "@noref[a,]",
+            "@noref[a,,b]",
+            "@noref[a b]",
+            "@noref[a,`b`]",
+        ] {
+            let lexed = lex_all(source);
+            assert_eq!(lexed.malformed.len(), 1, "{source}");
+            assert!(
+                matches!(
+                    lexed.malformed[0].reason,
+                    MalformedReason::InvalidNoRef { .. }
+                ),
+                "{source}: {:?}",
+                lexed.malformed[0].reason
+            );
+        }
+        let unclosed = lex_all("@noref[a, b");
+        assert!(matches!(
+            unclosed.malformed[0].reason,
+            MalformedReason::Unclosed
+        ));
+        assert_eq!(unclosed.malformed[0].kind, MarkerKind::NoRef);
+        let bracket = lex_all("@noref[a[b]");
+        assert!(matches!(
+            bracket.malformed[0].reason,
+            MalformedReason::Unclosed
+        ));
     }
 
     #[test]
@@ -369,6 +456,8 @@ mod tests {
             "[A-Za-z0-9_][A-Za-z0-9_.-]{0,10}".prop_map(|id| format!("@ref[#{id}]")),
             "[a-z]{1,8}(/[a-z]{1,8}){0,3}\\.[a-z]{1,3}".prop_map(|p| format!("@ref[{p}]")),
             "[A-Za-z_][A-Za-z0-9_]{0,10}".prop_map(|alias| format!("@[{alias}]")),
+            "[a-z]{1,6}(\\.[a-z]{1,3})?(, ?[a-z]{1,6}(\\.[a-z]{1,3})?){0,2}"
+                .prop_map(|list| format!("@noref[{list}]")),
             (
                 "[A-Za-z0-9_][A-Za-z0-9_.-]{0,10}",
                 "[A-Za-z_][A-Za-z0-9_]{0,10}"
@@ -410,7 +499,7 @@ mod tests {
         }
 
         #[test]
-        fn text_without_an_opener_yields_nothing(source in "[^@]{0,64}|@[^ar\\[][^\\[]{0,32}") {
+        fn text_without_an_opener_yields_nothing(source in "[^@]{0,64}|@[^arn\\[][^\\[]{0,32}") {
             let lexed = lex_all(&source);
             prop_assert!(lexed.markers.is_empty());
             prop_assert!(lexed.malformed.is_empty());

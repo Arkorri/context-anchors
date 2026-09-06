@@ -236,7 +236,9 @@ impl Index {
                         via: None,
                         site: site(root, path, marker.span, marker.region),
                     }),
-                    MarkerPayload::Anchor { .. } | MarkerPayload::Use { .. } => None,
+                    MarkerPayload::Anchor { .. }
+                    | MarkerPayload::Use { .. }
+                    | MarkerPayload::NoRef { .. } => None,
                 })
         })
     }
@@ -263,7 +265,9 @@ impl Index {
                         id_span: marker.body_span,
                         site: site(root, path, marker.span, marker.region),
                     }),
-                    MarkerPayload::Ref { .. } | MarkerPayload::Use { .. } => None,
+                    MarkerPayload::Ref { .. }
+                    | MarkerPayload::Use { .. }
+                    | MarkerPayload::NoRef { .. } => None,
                 })
         })
     }
@@ -281,7 +285,9 @@ impl Index {
                         binding: record.aliases.binding(alias),
                         site: site(root, path, marker.span, marker.region),
                     }),
-                    MarkerPayload::Anchor { .. } | MarkerPayload::Ref { .. } => None,
+                    MarkerPayload::Anchor { .. }
+                    | MarkerPayload::Ref { .. }
+                    | MarkerPayload::NoRef { .. } => None,
                 })
         })
     }

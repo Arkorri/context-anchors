@@ -175,7 +175,8 @@ pub fn plan_alias_rename(
             }
             MarkerPayload::Anchor { .. }
             | MarkerPayload::Ref { .. }
-            | MarkerPayload::Use { .. } => {
+            | MarkerPayload::Use { .. }
+            | MarkerPayload::NoRef { .. } => {
                 continue;
             }
         };

@@ -23,6 +23,7 @@ pub fn suggest<'a>(query: &str, candidates: impl IntoIterator<Item = &'a str>) -
     best.map(|(_, candidate)| candidate.to_owned())
 }
 
+// @noref[auth/token-refresh]
 /// Anchor ids are hierarchical, so a query that matches only the last segment of a candidate
 /// (`token-refresh` for `auth/token-refresh`) is still a useful suggestion.
 pub fn suggest_anchor<'a>(

@@ -25,7 +25,8 @@ pub enum Command {
     /// Rename an anchor id, rewriting its declaration and every reference to it.
     Rename(RenameArgs),
     // @anchor[cli/coverage]
-    /// Report reference-shaped strings that carry no marker. Never fails.
+    /// Report reference-shaped strings that carry no marker, minus `@noref` and `[coverage]`
+    /// ignores. Never fails.
     Coverage(CoverageArgs),
     // @anchor[cli/annotate]
     /// Propose `@ref` and `@[alias]` markers for reference-shaped strings whose target resolves.
@@ -63,6 +64,7 @@ pub struct CheckArgs {
 
 #[derive(Debug, Args)]
 pub struct BackrefsArgs {
+    // @noref[src/lib.rs, docs/guide.md]
     /// A target in reference syntax, e.g. `#auth/flow`, `src/lib.rs#run`, `docs/guide.md`.
     pub target: String,
 

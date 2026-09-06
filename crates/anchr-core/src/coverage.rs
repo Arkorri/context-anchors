@@ -11,7 +11,8 @@ use regex::Regex;
 use crate::check::Workspace;
 use crate::edit::TextEdit;
 use crate::index::Site;
-use crate::marker::{Alias, parse_target};
+use crate::marker::{Alias, MarkerPayload, NoRefEntry, NoRefItem, parse_target};
+use crate::noref::NoRefSet;
 use crate::resolve::{Resolution, Resolver};
 use crate::root::FilePath;
 use crate::span::ByteSpan;
@@ -69,6 +70,9 @@ pub enum CandidateKind {
     /// Declared with `as` in this file and never written as `@[alias]`. Advisory only, never
     /// an edit: the fix is to use it or drop the clause.
     UnusedAlias { alias: Alias },
+    /// Listed in this file's `@noref[...]` and matched nothing. Advisory only: the fix is to
+    /// drop the entry.
+    UnusedIgnore { entry: NoRefEntry },
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -89,6 +93,11 @@ pub struct CoverageSummary {
     pub ambiguous: usize,
     /// Not reference-shaped strings, so not part of `total`.
     pub unused_aliases: usize,
+    /// Tokens an ignore list suppressed. The author has said they are not references, so they
+    /// are not part of `total` either.
+    pub ignored: usize,
+    /// `@noref` entries plus `[coverage] ignore` entries that matched nothing.
+    pub unused_ignores: usize,
 }
 
 impl CoverageSummary {
@@ -101,6 +110,9 @@ impl CoverageSummary {
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct CoverageReport {
     pub candidates: Vec<Candidate>,
+    /// `[coverage] ignore` entries that matched nothing. Not candidates: they have no site in
+    /// an indexed file.
+    pub unused_config_ignores: Vec<NoRefEntry>,
     pub summary: CoverageSummary,
 }
 
@@ -127,22 +139,26 @@ impl CoverageReport {
     }
 }
 
-/// Scans the current root. `only_files` narrows which files are scanned for candidates; the
-/// symbol index used to place identifiers always covers the whole root. A file that cannot be
-/// read or analyzed is skipped: coverage informs, it never fails.
+/// Scans the current root. `only_files` and `[coverage] exclude` narrow which files are scanned
+/// for candidates and counted; the symbol index used to place identifiers always covers the
+/// whole root. A file that cannot be read or analyzed is skipped: coverage informs, it never
+/// fails.
 pub fn coverage(workspace: &Workspace, only_files: &[FilePath]) -> CoverageReport {
     let (root, index) = workspace.current();
     let mut analyzer = FileAnalyzer::new(&workspace.registry, root.config.scan.parse_budget);
     let symbols = symbol_index(workspace, &mut analyzer);
     let mut resolver = Resolver::new(&workspace.roots, &workspace.registry);
+    let excluded = &root.config.coverage.exclude;
+    let in_scope = |path: &FilePath| {
+        (only_files.is_empty() || only_files.contains(path)) && !excluded.is_match(path.as_path())
+    };
+    let mut global = NoRefSet::new(root.config.coverage.ignore.iter().cloned());
 
-    let mut paths: Vec<&FilePath> = index
-        .file_paths()
-        .filter(|path| only_files.is_empty() || only_files.contains(path))
-        .collect();
+    let mut paths: Vec<&FilePath> = index.file_paths().filter(|path| in_scope(path)).collect();
     paths.sort();
 
     let mut candidates = Vec::new();
+    let mut ignored = 0;
     for path in paths {
         let Some(record) = index.file_record(path) else {
             continue;
@@ -161,6 +177,18 @@ pub fn coverage(workspace: &Workspace, only_files: &[FilePath]) -> CoverageRepor
         let mut occupied: Vec<ByteSpan> = record.markers.iter().map(|m| m.span).collect();
         occupied.extend(record.malformed.iter().map(|m| m.span));
         let aliases: Vec<&Alias> = record.aliases.aliases().collect();
+        let noref_items: Vec<&NoRefItem> = record
+            .markers
+            .iter()
+            .filter_map(|marker| match &marker.payload {
+                MarkerPayload::NoRef { items } => Some(items),
+                MarkerPayload::Anchor { .. }
+                | MarkerPayload::Ref { .. }
+                | MarkerPayload::Use { .. } => None,
+            })
+            .flatten()
+            .collect();
+        let mut local = NoRefSet::new(noref_items.iter().map(|item| item.entry.clone()));
 
         for region in regions.iter() {
             let Some(text) = source.get(region.span.start..region.span.end) else {
@@ -169,6 +197,10 @@ pub fn coverage(workspace: &Workspace, only_files: &[FilePath]) -> CoverageRepor
             for token in tokens(text, region.kind, &aliases) {
                 let span = token.span.shifted_by(region.span.start);
                 if occupied.iter().any(|taken| taken.intersects(span)) {
+                    continue;
+                }
+                if local.claim(&token.text) || global.claim(&token.text) {
+                    ignored += 1;
                     continue;
                 }
                 let kind = match &token.shape {
@@ -196,11 +228,31 @@ pub fn coverage(workspace: &Workspace, only_files: &[FilePath]) -> CoverageRepor
                 });
             }
         }
+        for (position, entry) in local.unused() {
+            let item = noref_items[position];
+            let region = record
+                .markers
+                .iter()
+                .find(|marker| marker.span.contains(item.span.start))
+                .map_or(RegionKind::Prose, |marker| marker.region);
+            candidates.push(Candidate {
+                site: Site {
+                    root: root.name.clone(),
+                    path: path.clone(),
+                    span: item.span,
+                    region,
+                },
+                text: entry.to_string(),
+                kind: CandidateKind::UnusedIgnore {
+                    entry: entry.clone(),
+                },
+            });
+        }
     }
 
     let mut unused: Vec<(&FilePath, &Alias, ByteSpan)> = index
         .unused_aliases()
-        .filter(|(path, _, _)| only_files.is_empty() || only_files.contains(path))
+        .filter(|(path, _, _)| in_scope(path))
         .map(|(path, alias, binding)| (path, alias, binding.alias_span))
         .collect();
     unused.sort();
@@ -228,12 +280,25 @@ pub fn coverage(workspace: &Workspace, only_files: &[FilePath]) -> CoverageRepor
         });
     }
 
+    let direct_refs = index
+        .refs()
+        .filter(|ref_site| in_scope(&ref_site.site.path))
+        .count();
     let bound_uses = index
         .alias_uses()
-        .filter(|use_site| use_site.binding.is_some())
+        .filter(|use_site| use_site.binding.is_some() && in_scope(&use_site.site.path))
         .count();
+    // A narrowed run cannot see the files where a root-wide entry matches, so only a whole-root
+    // run can call one unused.
+    let unused_config_ignores: Vec<NoRefEntry> = if only_files.is_empty() {
+        global.unused().map(|(_, entry)| entry.clone()).collect()
+    } else {
+        Vec::new()
+    };
     let mut summary = CoverageSummary {
-        annotated_refs: index.refs().count() + bound_uses,
+        annotated_refs: direct_refs + bound_uses,
+        ignored,
+        unused_ignores: unused_config_ignores.len(),
         ..CoverageSummary::default()
     };
     for candidate in &candidates {
@@ -242,10 +307,12 @@ pub fn coverage(workspace: &Workspace, only_files: &[FilePath]) -> CoverageRepor
             CandidateKind::Unresolvable { .. } => summary.unresolvable += 1,
             CandidateKind::Ambiguous { .. } => summary.ambiguous += 1,
             CandidateKind::UnusedAlias { .. } => summary.unused_aliases += 1,
+            CandidateKind::UnusedIgnore { .. } => summary.unused_ignores += 1,
         }
     }
     CoverageReport {
         candidates,
+        unused_config_ignores,
         summary,
     }
 }
@@ -539,6 +606,7 @@ mod tests {
                         format!("ambiguous x{}", declared_in.len())
                     }
                     CandidateKind::UnusedAlias { .. } => "unused alias".to_owned(),
+                    CandidateKind::UnusedIgnore { .. } => "unused ignore".to_owned(),
                 };
                 (c.site.path.to_string(), c.text.clone(), kind)
             })
@@ -703,5 +771,135 @@ mod tests {
         assert_eq!(readme.len(), 1);
         assert_eq!(readme[0].expected, "`docs/guide.md`");
         assert_eq!(readme[0].replacement, "@ref[docs/guide.md]");
+    }
+
+    #[test]
+    fn noref_lists_suppress_every_token_shape_in_their_file_only() {
+        let fixture = Fixture::new(&[
+            (
+                "docs/a.md",
+                "@noref[docs/guide.md, src/, Guide]\n@ref[docs/guide.md as Guide]\nSee `docs/guide.md`, src/x.rs, `src/x.rs#run`, and Guide (@[Guide]).\n",
+            ),
+            ("docs/b.md", "See `docs/guide.md` and src/x.rs.\n"),
+            ("docs/guide.md", "# Guide\n"),
+            ("src/x.rs", "pub fn run() {}\n"),
+        ]);
+        let report = fixture.coverage();
+        assert_eq!(
+            describe(&report),
+            vec![
+                (
+                    "docs/b.md".to_owned(),
+                    "`docs/guide.md`".to_owned(),
+                    "propose @ref[docs/guide.md]".to_owned()
+                ),
+                (
+                    "docs/b.md".to_owned(),
+                    "src/x.rs".to_owned(),
+                    "propose @ref[src/x.rs]".to_owned()
+                ),
+            ]
+        );
+        assert_eq!(report.summary.ignored, 4);
+        assert_eq!(report.summary.unused_ignores, 0);
+        assert_eq!(report.summary.annotated_refs, 2);
+        assert_eq!(report.summary.total(), 4);
+        assert!(report.unused_config_ignores.is_empty());
+    }
+
+    #[test]
+    fn unused_and_duplicate_noref_entries_are_advisories_at_their_span() {
+        let source = "@noref[foo.ts, bar.md, foo.ts]\nMentions foo.ts only.\n";
+        let fixture = Fixture::new(&[("docs/a.md", source)]);
+        let report = fixture.coverage();
+        assert_eq!(
+            describe(&report),
+            vec![
+                (
+                    "docs/a.md".to_owned(),
+                    "bar.md".to_owned(),
+                    "unused ignore".to_owned()
+                ),
+                (
+                    "docs/a.md".to_owned(),
+                    "foo.ts".to_owned(),
+                    "unused ignore".to_owned()
+                ),
+            ]
+        );
+        let spans: Vec<&str> = report
+            .candidates
+            .iter()
+            .map(|c| &source[c.site.span.start..c.site.span.end])
+            .collect();
+        assert_eq!(spans, vec!["bar.md", "foo.ts"]);
+        assert_eq!(report.candidates[1].site.span.start, 23);
+        assert_eq!(report.summary.ignored, 1);
+        assert_eq!(report.summary.unused_ignores, 2);
+        assert!(report.proposals().is_empty());
+    }
+
+    #[test]
+    fn config_ignore_and_exclude_apply_across_files_and_report_unused_entries() {
+        let fixture = Fixture::new(&[
+            (
+                "anchr.toml",
+                "[coverage]\nexclude = [\"archive/**\"]\nignore = [\"CLAUDE.md\", \"never.md\"]\n",
+            ),
+            (
+                "docs/a.md",
+                "See `CLAUDE.md` and `docs/guide.md`. @ref[docs/guide.md]\n",
+            ),
+            (
+                "archive/old.md",
+                "See `docs/guide.md` and CLAUDE.md. @ref[docs/guide.md]\n",
+            ),
+            ("docs/guide.md", "# Guide\n"),
+        ]);
+        let workspace = Workspace::load(config::discover(&fixture.root_dir).unwrap()).unwrap();
+        let report = coverage(&workspace, &[]);
+        assert_eq!(
+            describe(&report),
+            vec![(
+                "docs/a.md".to_owned(),
+                "`docs/guide.md`".to_owned(),
+                "propose @ref[docs/guide.md]".to_owned()
+            )]
+        );
+        assert_eq!(
+            report
+                .unused_config_ignores
+                .iter()
+                .map(NoRefEntry::as_str)
+                .collect::<Vec<_>>(),
+            vec!["never.md"]
+        );
+        assert_eq!(report.summary.ignored, 1);
+        assert_eq!(report.summary.unused_ignores, 1);
+        assert_eq!(report.summary.annotated_refs, 1);
+        assert_eq!(report.summary.total(), 2);
+
+        let (_, index) = workspace.current();
+        assert_eq!(index.refs().count(), 2, "excluded files are still indexed");
+        let archive = FilePath::new(Utf8PathBuf::from("archive/old.md")).unwrap();
+        let narrowed = coverage(&workspace, &[archive]);
+        assert!(narrowed.candidates.is_empty());
+        assert!(
+            narrowed.unused_config_ignores.is_empty(),
+            "a narrowed run cannot judge root-wide entries"
+        );
+        assert_eq!(narrowed.summary.unused_ignores, 0);
+    }
+
+    #[test]
+    fn a_local_entry_shadows_a_global_one() {
+        let fixture = Fixture::new(&[
+            ("anchr.toml", "[coverage]\nignore = [\"foo.ts\"]\n"),
+            ("docs/a.md", "@noref[foo.ts]\nSee foo.ts.\n"),
+        ]);
+        let report = fixture.coverage();
+        assert!(report.candidates.is_empty());
+        assert_eq!(report.summary.ignored, 1);
+        assert_eq!(report.unused_config_ignores.len(), 1);
     }
 }
