@@ -10,15 +10,23 @@
 @ref[crates/anchr-core/src/resolve/mod.rs#Resolver as Resolver]
 @ref[crates/anchr-core/src/diagnostic.rs#Report as Report]
 @ref[crates/anchr-core/src/diagnostic.rs#DiagnosticKind as DiagnosticKind]
+@ref[crates/anchr-core/src/root.rs#FilePath as FilePath]
+@ref[crates/anchr-core/src/text/source.rs#SymbolTable as SymbolTable]
+@ref[#cli/check as Check]
+@ref[#cli/coverage as Coverage]
+@ref[#cli/backrefs as Backrefs]
+@ref[#cli/rename as Rename]
+@ref[#cli/init as Init]
 
 **Companion to:** @ref[DESIGN.md] (what the tool is) and @ref[DISTRIBUTION.md] (how it ships); this
 document covers how the code is shaped. Where it deviates from those two, §12 says so.
 
 ## Context
 
-`DESIGN.md` and `DISTRIBUTION.md` settle *what* `anchr` is: opt-in `@anchor[id]` / `@ref[target]`
-markers in prose and code comments, batch-validated by `anchr check`, grouped-by-cause diagnostics
-with an explicit *unverified* class, Rust single binary, LSP later. The repo has no code yet.
+@ref[DESIGN.md] and @ref[DISTRIBUTION.md] settle *what* `anchr` is: opt-in `@anchor[id]` /
+`@ref[target]` markers in prose and code comments, batch-validated by `anchr check`,
+grouped-by-cause diagnostics with an explicit *unverified* class, Rust single binary, LSP later. The
+repo has no code yet.
 
 This document is the code-level design that turns that into a Rust workspace: crate layout, module
 map, core types, the per-stage algorithms, the crate choices (reuse first), error/diagnostic model,
@@ -177,7 +185,7 @@ filesystem. @[parse_target] records `PathExpectation::Directory` *before* normal
 what guarantees the join cannot escape the root (§10).
 
 @[parse_target] also returns the byte span of the ID portion for `#id` / `root:#id` targets so
-`rename` (step 10) rewrites exactly the ID bytes and nothing else.
+@[Rename] (step 10) rewrites exactly the ID bytes and nothing else.
 
 ---
 
@@ -325,7 +333,7 @@ A skipped file (too large, not UTF-8) may contain anchors that are therefore uni
 can surface elsewhere as `AnchorMissing`. The `FileTooLarge` / `FileNotUtf8` diagnostics say so
 explicitly and name `max-file-bytes` as the knob, so the cause is visible in the same report.
 
-### 3.4 Index (@ref[crates/anchr-core/src/index.rs])
+### 3.4 @[Index] (@ref[crates/anchr-core/src/index.rs])
 
 Per root, in memory, derived:
 
@@ -346,7 +354,8 @@ impl Index {
 ```
 
 `files` is the only owner of marker data; `anchors_by_id` is rebuilt for a file inside
-`update_file`/`remove_file` so the two can never drift.
+@ref[crates/anchr-core/src/index.rs#update_file] and
+@ref[crates/anchr-core/src/index.rs#remove_file], so the two can never drift.
 
 **No persistent cache in v1.** @ref[#design/architecture] says "incremental, gitignored"; the scan
 is embarrassingly parallel and tree-sitter is fast enough that a full rebuild on a mid-size repo is
@@ -405,7 +414,8 @@ dir and index.
   `starts_with` the canonical root (else `PathEscapesRoot`, since this is a read); registry lookup
   by extension (none ⇒ `NoGrammar`; no declaration query ⇒ `NoSymbolQuery`); parse with
   `parse_with_options` and a progress callback that aborts past a wall-clock budget (⇒
-  `Unverified::ParseTimeout`); run `declaration_query` with `QueryCursor::matches` (a
+  `Unverified::ParseTimeout`); run
+  @ref[crates/anchr-core/src/text/language.rs#declaration_query] with `QueryCursor::matches` (a
   `StreamingIterator` in tree-sitter 0.27, so `while let Some(m) = matches.next()`); per match, keep
   it only if it has a capture whose name starts with `definition.` (a per-match filter; there is no
   clean pattern-to-capture API for `disable_pattern`), and record the `@name` capture's text and
@@ -472,8 +482,8 @@ most one suggestion, the lowest distance; never mutates.
   site comes from `LocatedSite`, so the list form never needs the source. Multi-file gutter
   alignment is more work than it looks, which is why this is borrowed rather than written; miette
   wants to own error types and ariadne defaults to char offsets, so neither fits.
-- **JSON** (@ref[crates/context-anchors/src/render/json.rs#JsonReport]): `serde` on a dedicated
-  `JsonReport` DTO (not the core types, so the wire format is decoupled), with `"schema": 1`.
+- **JSON**: `serde` on a dedicated @ref[crates/context-anchors/src/render/json.rs#JsonReport]
+  DTO (not the core types, so the wire format is decoupled), with `"schema": 1`.
   Locations carry path, 1-based line/col, byte span, and region kind. Unverified diagnostics include
   a `hint` string that names the fix ("install the `full` build or add a grammar for `.ex`" per
   @ref[#dist/implementation-decisions]).
@@ -541,14 +551,14 @@ finding to an error (§3.5).
 covers the whole root so anchor resolution is correct; duplicate-anchor and file-level findings
 are reported regardless of the filter because they affect the whole root).
 
-In milestone 1, `init` (@ref[crates/context-anchors/src/commands/init.rs]) is the only writing
+In milestone 1, @[Init] (@ref[crates/context-anchors/src/commands/init.rs]) is the only writing
 command. Rules: never overwrite an existing file without `--force`; `--dry-run` prints what would be
 written; every path written is printed. It writes `anchr.toml` and an `AGENTS.md`-compatible
 instruction block. For `--agent claude` it merges a `PostToolUse` hook into `.claude/settings.json`
 via a `serde_json::Value` read-modify-write that preserves every key it does not own, and refuses
-(with the exact JSON to paste) if that file is not valid JSON. Idempotent: running `init` twice is a
-no-op the second time. `lsp`, `backrefs`, `rename`, `coverage` are v1.1 subcommands and slot in
-under @ref[crates/context-anchors/src/commands/] (the LSP under
+(with the exact JSON to paste) if that file is not valid JSON. Idempotent: running @[Init] twice is
+a no-op the second time. @ref[#cli/lsp], @[Backrefs], @[Rename], and @[Coverage] are v1.1
+subcommands and slot in under @ref[crates/context-anchors/src/commands/] (the LSP under
 @ref[crates/context-anchors/src/lsp/]) with no structural change.
 
 ---
@@ -560,7 +570,7 @@ target grammar parser, the region-complement logic, the index, resolution, and g
 
 | Concern | Crate | Version | Why |
 |---|---|---|---|
-| Markdown | `pulldown-cmark` | 0.13.4 | byte-range `into_offset_iter`; pure Rust; rustdoc/mdBook lineage. **Deviation from `DESIGN.md` (comrak)**: comrak's sourcepos is 1-based line/col and we only need byte exclusion ranges. |
+| Markdown | `pulldown-cmark` | 0.13.4 | byte-range `into_offset_iter`; pure Rust; rustdoc/mdBook lineage. **Deviation from @ref[DESIGN.md] (comrak)**: comrak's sourcepos is 1-based line/col and we only need byte exclusion ranges. |
 | Parse runtime | `tree-sitter` | 0.27.0 | canonical bindings; accepts grammar ABI 13–15 |
 | Grammars | `tree-sitter-rust` 0.24.2, `-typescript` 0.23.2, `-javascript` 0.25.0, `-python` 0.25.0, `-go` 0.25.0 | | each exports `LANGUAGE` + `TAGS_QUERY`; static link, ~5 MB total (estimate) |
 | Walk + globs | `ignore` + `globset` | 0.4.33 / 0.4.20 | ripgrep's; parallel walker with per-thread state |
@@ -596,19 +606,21 @@ Not used, deliberately: `rayon` (walker already parallel), `tree-sitter-tags` (w
   **findings about the user's files** — broken refs, malformed markers, unreadable/too-large
   files — are data inside @[Report]. A single unreadable file must never abort a check; it
   becomes an *unverified* diagnostic so it is visible but non-blocking.
-- Binary: `anyhow` at the top, `main` maps `Ok(report)` → exit code from `report`, `Err` → stderr
-  + exit 2.
+- Binary: `anyhow` at the top, @ref[crates/context-anchors/src/main.rs#main] maps `Ok(report)` →
+  exit code from `report`, `Err` → stderr + exit 2.
 
 ---
 
 ## 8. Concurrency and state
 
-- Immutable inputs (`RootSet`, `Config`, registry) shared by `&`; per-file work is pure
+- Immutable inputs (@ref[crates/anchr-core/src/root.rs#RootSet],
+  @ref[crates/anchr-core/src/config.rs#Config], registry) shared by `&`; per-file work is pure
   (`&str → FileScan`) and runs on the walker's threads, each owning its @[FileAnalyzer]; results
   flow over an `mpsc` channel to a single-threaded fold into @[Index]. Resolution and rendering
   are single-threaded, so their caches are plain `HashMap`s owned by the @[Resolver]. No global
-  mutable state; the marker `Regex` is a `LazyLock` static and the `LanguageRegistry` is built
-  once per run and shared by `&`.
+  mutable state; the marker `Regex` is a `LazyLock` static and the
+  @ref[crates/anchr-core/src/text/language.rs#LanguageRegistry] is built once per run and shared
+  by `&`.
 
 ---
 
@@ -639,7 +651,7 @@ Not used, deliberately: `rayon` (walker already parallel), `tree-sitter-tags` (w
   symlink not followed, oversized file reported as unverified with the anchors-unindexed wording,
   `@ref[src/Foo.ts]` against `foo.ts` is `PathMissing` on every platform (exact-name lookup),
   `PATHS` filtering semantics, a human-output `insta` snapshot with `--color never`, a
-  bad-config exit-2 snapshot showing the caret rendering, and `init` idempotency / `--force` /
+  bad-config exit-2 snapshot showing the caret rendering, and @[Init] idempotency / `--force` /
   `--dry-run` / settings-merge preserving foreign keys.
 - **Dogfood**: @ref[anchr.toml] at repo root; CI runs `anchr check --strict` over the repository.
   The design documents carry live markers: cross-document citations are anchor refs; a type or
@@ -718,13 +730,14 @@ escapes the root yields `Unresolved::PathEscapesRoot` rather than a read. Existe
 `&Utf8Path`, not owned paths. A `proptest` asserts `RelPath::parse(s).map(|p| root.join(p))`
 never escapes `root` for arbitrary `s`.
 
-**Input bounds** (items 14, 16, 19) — `AnchorId`, `RootName`,
+**Input bounds** (items 14, 16, 19) — @ref[crates/anchr-core/src/marker/id.rs#AnchorId],
+@ref[crates/anchr-core/src/root.rs#RootName],
 @ref[crates/anchr-core/src/marker/symbol.rs#SymbolName], and
 @[RelPath] are allowlist-parsed newtypes with private fields
 and length caps (ID ≤ 256 bytes, segment ≤ 64, path ≤ 1024). File size is checked from metadata
 before reading (`max-file-bytes`, default 2 MiB, validated ≤ `u32::MAX`); oversized files are
 unverified findings. The marker regex is `regex` (linear time). Tree-sitter parsing runs under a
-progress-callback budget (`ParseTimeout`), and `SymbolTable` construction caps at 100k declarations
+progress-callback budget (`ParseTimeout`), and @[SymbolTable] construction caps at 100k declarations
 per file, discarding the table and reporting `SymbolTableTruncated` rather than returning a partial
 one. No `with_capacity(n)` where `n` derives from file content. Config: `deny_unknown_fields`, enums
 for every fixed-choice field (`UnverifiedPolicy { Report, Error }`,
@@ -768,31 +781,38 @@ are rejected at read time.
 
 The version labels in @ref[#design/scope] are milestones, not releases: everything below is built in
 succession before the first public release, so the core is designed for the final shape from
-step 1 (the @[Index] update/remove API, the DTO-decoupled JSON schema, and the `LanguageSpec`
-table all exist because steps 9–11 need them).
+step 1 (the @[Index] update/remove API, the DTO-decoupled JSON schema, and the
+@ref[crates/anchr-core/src/text/language.rs#LanguageSpec] table all exist because steps 9–11 need
+them).
 
 **Milestone 1 — the guarantee (`anchr check`)**
-1. Workspace scaffold, lints, `deny.toml`, CI skeleton, `cargo-dist` config. Two spike tests
+1. Workspace scaffold, lints, @ref[deny.toml], CI skeleton, `cargo-dist` config. Two spike tests
    that pin third-party behaviour the design depends on: a walker-thread panic propagates to
    the caller, and a gitignored file is not yielded even when it matches an include glob.
-2. `span`, `marker` (types + @[parse_target] + lexer) — pure, fully unit-tested first.
-3. `text/markdown`, `text/plaintext`, `text/language` + `text/source` (one language first: Rust,
-   to dogfood; then TS/TSX/JS/Py/Go).
-4. `config`, `root`, `scan`, `index`.
-5. `resolve/*`, `suggest`, `diagnostic`, `check::run_check`.
-6. Binary: `cli`, `check` command, human + JSON render, exit codes; integration fixtures.
-7. `init`; dogfood `anchr.toml`; fuzz targets.
+2. @ref[crates/anchr-core/src/span.rs], @ref[crates/anchr-core/src/marker/] (types +
+   @[parse_target] + lexer) — pure, fully unit-tested first.
+3. @ref[crates/anchr-core/src/text/markdown.rs], plaintext regions
+   (@ref[crates/anchr-core/src/text/mod.rs]), @ref[crates/anchr-core/src/text/language.rs] +
+   @ref[crates/anchr-core/src/text/source.rs] (one language first: Rust, to dogfood; then
+   TS/TSX/JS/Py/Go).
+4. @ref[crates/anchr-core/src/config.rs], @ref[crates/anchr-core/src/root.rs],
+   @ref[crates/anchr-core/src/scan.rs], @ref[crates/anchr-core/src/index.rs].
+5. @ref[crates/anchr-core/src/resolve/], @ref[crates/anchr-core/src/suggest.rs],
+   @ref[crates/anchr-core/src/diagnostic.rs], @ref[crates/anchr-core/src/check.rs#run_check].
+6. Binary: @ref[crates/context-anchors/src/cli.rs], the @[Check] command, human + JSON render,
+   exit codes; integration fixtures.
+7. @[Init]; dogfood @ref[anchr.toml]; fuzz targets.
 8. Release pipeline: cargo-dist (shell/powershell installers, musl targets), plus the npm
    platform-package script (`@context-anchors/<platform>` + thin `anchr` shim generated from
    `dist-manifest.json`), dry-run against a pre-release tag.
 
 **Milestone 2 — the multiplier**
 9. `anchr lsp` (`lsp-server` + `ls-types`, stdio): diagnostics on open/change, go-to-definition
-   for `#id` (anchor @[Site]) and `file#Symbol` (`SymbolTable` declaration spans),
+   for `#id` (anchor @[Site]) and `file#Symbol` (@[SymbolTable] declaration spans),
    find-references via `Index::backrefs`, rename of an anchor ID via the recorded `id_span`s,
    document symbols. Reuses `check::run_check` machinery per root and `Index::update_file` per
    edited document; `catch_unwind` per request (§10).
-10. `anchr backrefs`, `anchr rename` (rename is the only mutating command besides `init`; it
+10. `anchr backrefs`, `anchr rename` (rename is the only mutating command besides @[Init]; it
     rewrites exactly the `id_span` bytes of every anchor and ref carrying the old ID and prints
     every file touched).
 11. `anchr coverage` / `anchr annotate`: heuristic scanner over the same text regions, reporting
@@ -806,7 +826,7 @@ Each numbered step is one PR-sized unit and independently testable.
 
 ---
 
-## 12. Decisions that deviate from DESIGN.md / DISTRIBUTION.md
+## 12. Decisions that deviate from @ref[DESIGN.md] / @ref[DISTRIBUTION.md]
 
 All approved with the design; each is independent, so any one can be reversed without
 disturbing the rest.
@@ -824,7 +844,7 @@ disturbing the rest.
    `dist-manifest.json` (esbuild/biome pattern; roughly a day of work); (c) defer npm to v1.1 and
    ship curl + GitHub Releases only. **Decision: (b).** The user wants the final shape, and all
    milestones are built before anything is released, so there is no interim to optimize for.
-   `DISTRIBUTION.md` §4 stands as written.
+   @ref[DISTRIBUTION.md] §4 stands as written.
 6. **LSP stack for v1.1**: `lsp-server` + `ls-types`, synchronous, negotiating
    `positionEncoding: utf-8` with UTF-16 fallback via `line-index`. Not tower-lsp (dead) or
    tokio-based servers (unneeded for a re-parse-whole-document server).
@@ -834,24 +854,25 @@ disturbing the rest.
 Refinements the code made to the design above, recorded so the document stays the map:
 
 1. **Two path types.** @[RelPath] is the reference grammar's allowlisted path. Scanned files
-   get their own identity, `FilePath`, which accepts any UTF-8 relative name: `My Notes.md`
+   get their own identity, @[FilePath], which accepts any UTF-8 relative name: `My Notes.md`
    must be scanned even though no `@ref` can name it. @[Site] and the index are keyed by
-   `FilePath`; @[RelPath] converts into it for resolution.
-2. **File identity lives on the scan, not the marker.** `Marker` carries spans only; @[Site]
-   (root, path, span, region) is built by the index and diagnostics. Markers keep a
+   @[FilePath]; @[RelPath] converts into it for resolution.
+2. **File identity lives on the scan, not the marker.**
+   @ref[crates/anchr-core/src/marker/mod.rs#Marker] carries spans only; @[Site] (root, path,
+   span, region) is built by the index and diagnostics. Markers keep a
    `body_span`, and refs to anchors an `id_span`, which rename and the LSP rewrite.
 3. **Comments exclude backtick spans**, mirroring markdown's inline-code rule (§3.1). This
    repository's own doc comments needed it to pass `anchr check`.
 4. **A leading backslash escapes a marker** (`\@ref[...]`), alongside the bracket-escape form.
 5. **The lexer's body class excludes `[`**, so an unclosed opener cannot swallow the next
    marker; each opener gets its own diagnostic.
-6. **`coverage` sees more than `check` lexes**: markdown code spans (`RegionKind::InlineCode`)
+6. **@[Coverage] sees more than @[Check] lexes**: markdown code spans (`RegionKind::InlineCode`)
    and raw comment nodes, minus link destinations and fences. Identifiers in code spans are
    placed via a symbol index over every scanned source file: one declaring file ⇒ proposal,
    several ⇒ ambiguous, none ⇒ ignored. Path tokens must end in a segment containing a letter.
-7. **`Workspace`** (@ref[crates/anchr-core/src/check.rs#Workspace]) owns the registry, the indexed
-   roots, and scan findings; `check`, `backrefs`, `rename`, `coverage`, and the LSP all run against
-   it. `Workspace::update_file` re-lexes one document from editor text for the LSP.
+7. **@ref[crates/anchr-core/src/check.rs#Workspace]** owns the registry, the indexed roots, and
+   scan findings; @[Check], @[Backrefs], @[Rename], @[Coverage], and the LSP all run against it.
+   `Workspace::update_file` re-lexes one document from editor text for the LSP.
 8. **LSP stack**: `lsp-server` + `ls-types`, synchronous, `catch_unwind` per message, full
    document sync, UTF-8 positions when the client offers them. The connection is dropped before
    the stdio threads are joined; the writer thread does not exit otherwise.
@@ -864,22 +885,28 @@ Refinements the code made to the design above, recorded so the document stays th
     catch wraps only the third-party iteration and turns a panic into
     `AnalyzeError::ParserPanicked`, reported as an unverified skipped file. The fuzz target
     restores the default panic hook so the catch is exercised under fuzzing too.
-11. **Names that differ from the body above.** `AnalyzeError` is the design's `ContainerError`.
+11. **Names that differ from the body above.**
+    @ref[crates/anchr-core/src/text/mod.rs#AnalyzeError] is the design's `ContainerError`.
     There is no `NoSymbolQuery`: every registered language ships a declaration query. The
-    per-run directory cache is a private `Listing` in @ref[crates/anchr-core/src/resolve/path.rs],
+    per-run directory cache is a private @ref[crates/anchr-core/src/resolve/path.rs#Listing],
     not a `DirectoryListingCache`. Skipped files are one `DiagnosticKind::FileSkipped` carrying a
-    `SkipReason` rather than `FileNotUtf8`/`FileTooLarge`, and `Unresolved` gained
-    `PathNotDirectory`/`PathNotFile` for the trailing-slash rule. Module layout: `marker/` is
-    split into `id`, `path`, `symbol`, and `target`; plaintext regions live in
-    @ref[crates/anchr-core/src/text/mod.rs]; anchors resolve inside `resolve/mod.rs`; `edit.rs`,
-    `rename.rs`, and `coverage.rs` are new. The section headings above point at the real modules.
+    @ref[crates/anchr-core/src/scan.rs#SkipReason] rather than `FileNotUtf8`/`FileTooLarge`, and
+    @ref[crates/anchr-core/src/resolve/mod.rs#Unresolved] gained `PathNotDirectory`/`PathNotFile`
+    for the trailing-slash rule. Module layout: @ref[crates/anchr-core/src/marker/] is split into
+    @ref[crates/anchr-core/src/marker/id.rs], @ref[crates/anchr-core/src/marker/path.rs],
+    @ref[crates/anchr-core/src/marker/symbol.rs], and
+    @ref[crates/anchr-core/src/marker/target.rs]; plaintext regions live in
+    @ref[crates/anchr-core/src/text/mod.rs]; anchors resolve inside
+    @ref[crates/anchr-core/src/resolve/mod.rs]; @ref[crates/anchr-core/src/edit.rs],
+    @ref[crates/anchr-core/src/rename.rs], and @ref[crates/anchr-core/src/coverage.rs] are new.
+    The section headings above point at the real modules.
 12. **Milestone 3 is not started.** `review`/`accept`, exported anchors, and MCP need their own
     code-level design before implementation.
 13. **Alias imports.** Dogfooding showed that qualified symbol refs are too long to write at
     every mention, so unannotated mentions rot unseen. The fix borrows `import x as y`: a file
     declares a target once under a local name (`@ref[target as X]`) and writes `@[X]` at every
     mention. The alias table lives on the file's index record; uses bind through it, join
-    `backrefs`, and are counted separately; undeclared and duplicate aliases are errors keyed by
+    @[Backrefs], and are counted separately; undeclared and duplicate aliases are errors keyed by
     file. Grammar, semantics, and reasons are in @ref[docs/design/aliases.md]. This document's own
     index block at the top is the first user.
 
@@ -895,7 +922,7 @@ The research this design rests on lives in @ref[docs/research/]:
 - @ref[docs/research/code-design-review.md] — 25 findings against the draft of this document, all
   incorporated. The three blockers were: include globs as `ignore` overrides bypassing `.gitignore`,
   false `SymbolMissing` on error-bearing parse trees, and case-insensitive path resolution making
-  `check` platform-dependent.
+  @[Check] platform-dependent.
 
 Survey caveats to verify during implementation: compiled grammar sizes are estimates; `ignore`
 override-vs-gitignore precedence is pinned by a spike test in build step 1 rather than assumed.
