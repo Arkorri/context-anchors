@@ -792,6 +792,44 @@ disturbing the rest.
    `positionEncoding: utf-8` with UTF-16 fallback via `line-index`. Not tower-lsp (dead) or
    tokio-based servers (unneeded for a re-parse-whole-document server).
 
+## 12a. Implementation notes (milestones 1 and 2 built)
+
+Refinements the code made to the design above, recorded so the document stays the map:
+
+1. **Two path types.** `RelPath` is the reference grammar's allowlisted path. Scanned files
+   get their own identity, `FilePath`, which accepts any UTF-8 relative name: `My Notes.md`
+   must be scanned even though no `@ref` can name it. `Site` and the index are keyed by
+   `FilePath`; `RelPath` converts into it for resolution.
+2. **File identity lives on the scan, not the marker.** `Marker` carries spans only; `Site`
+   (root, path, span, region) is built by the index and diagnostics. Markers keep a
+   `body_span`, and refs to anchors an `id_span`, which rename and the LSP rewrite.
+3. **Comments exclude backtick spans**, mirroring markdown's inline-code rule (§3.1). This
+   repository's own doc comments needed it to pass `anchr check`.
+4. **A leading backslash escapes a marker** (`\@ref[...]`), alongside the bracket-escape form.
+5. **The lexer's body class excludes `[`**, so an unclosed opener cannot swallow the next
+   marker; each opener gets its own diagnostic.
+6. **`coverage` sees more than `check` lexes**: markdown code spans (`RegionKind::InlineCode`)
+   and raw comment nodes, minus link destinations and fences. Identifiers in code spans are
+   placed via a symbol index over every scanned source file: one declaring file ⇒ proposal,
+   several ⇒ ambiguous, none ⇒ ignored. Path tokens must end in a segment containing a letter.
+7. **`Workspace`** (`check.rs`) owns the registry, the indexed roots, and scan findings; `check`,
+   `backrefs`, `rename`, `coverage`, and the LSP all run against it. `Workspace::update_file`
+   re-lexes one document from editor text for the LSP.
+8. **LSP stack**: `lsp-server` + `ls-types`, synchronous, `catch_unwind` per message, full
+   document sync, UTF-8 positions when the client offers them. The connection is dropped before
+   the stdio threads are joined; the writer thread does not exit otherwise.
+9. **npm**: `scripts/npm/build-packages.mjs` builds `@context-anchors/<os>-<cpu>` packages
+   (static musl on Linux) plus the `context-anchors` shim from cargo-dist's manifest, published
+   by `publish-npm.yml` as a dist custom publish job.
+10. **A narrow `catch_unwind` guards pulldown-cmark.** Fuzzing found that its offset iterator
+    panics on some malformed documents (pulldown-cmark/pulldown-cmark#1129, open upstream).
+    §10's rule against catching panics around per-file work still holds for our own code: the
+    catch wraps only the third-party iteration and turns a panic into
+    `AnalyzeError::ParserPanicked`, reported as an unverified skipped file. The fuzz target
+    restores the default panic hook so the catch is exercised under fuzzing too.
+11. **Milestone 3 is not started.** `review`/`accept`, exported anchors, and MCP need their own
+    code-level design before implementation.
+
 ## 13. Research appendix
 
 The research this design rests on lives in `docs/research/`:
