@@ -1,9 +1,10 @@
-use std::collections::HashMap;
+use std::collections::{BTreeMap, HashMap};
 
 use anchr_core::check::{CheckOptions, Workspace, check};
 use anchr_core::diagnostic::{Locations, Severity};
-use anchr_core::marker::{AnchorId, Marker, MarkerPayload, RefTarget};
-use anchr_core::rename::plan_rename;
+use anchr_core::edit::TextEdit as ByteEdit;
+use anchr_core::marker::{Alias, AnchorId, Marker, MarkerPayload, RefTarget};
+use anchr_core::rename::{plan_alias_rename, plan_rename};
 use anchr_core::resolve::IndexedRoot;
 use anchr_core::root::FilePath;
 use anchr_core::span::{LineIndex, PositionEncoding};
@@ -16,12 +17,12 @@ use ls_types::notification::{
 };
 use ls_types::request::{DocumentSymbolRequest, GotoDefinition, References, Rename, Request as _};
 use ls_types::{
-    Diagnostic, DiagnosticSeverity, DidChangeTextDocumentParams, DidCloseTextDocumentParams,
-    DidOpenTextDocumentParams, DocumentSymbol, DocumentSymbolParams, DocumentSymbolResponse,
-    GotoDefinitionParams, GotoDefinitionResponse, InitializeParams, Location, NumberOrString,
-    OneOf, Position, PositionEncodingKind, PublishDiagnosticsParams, Range, ReferenceParams,
-    RenameParams, ServerCapabilities, SymbolKind, TextDocumentSyncCapability, TextDocumentSyncKind,
-    TextEdit, Uri, WorkspaceEdit,
+    Diagnostic, DiagnosticRelatedInformation, DiagnosticSeverity, DidChangeTextDocumentParams,
+    DidCloseTextDocumentParams, DidOpenTextDocumentParams, DocumentSymbol, DocumentSymbolParams,
+    DocumentSymbolResponse, GotoDefinitionParams, GotoDefinitionResponse, InitializeParams,
+    Location, NumberOrString, OneOf, Position, PositionEncodingKind, PublishDiagnosticsParams,
+    Range, ReferenceParams, RenameParams, ServerCapabilities, SymbolKind,
+    TextDocumentSyncCapability, TextDocumentSyncKind, TextEdit, Uri, WorkspaceEdit,
 };
 use lsp_server::{ErrorCode, Message, Notification, Request, Response};
 
@@ -211,10 +212,14 @@ impl Server {
         let Ok(report) = check(&self.workspace, &options) else {
             return Vec::new();
         };
-        let (_, index) = self.workspace.current();
-        let Some(line_index) = index.line_index(path) else {
+        let (current_root, index) = self.workspace.current();
+        let (Some(record), Some(uri)) = (
+            index.file_record(path),
+            convert::uri_for(&current_root.dir, path),
+        ) else {
             return Vec::new();
         };
+        let line_index = &record.line_index;
         let mut diagnostics = Vec::new();
         for diagnostic in &report.diagnostics {
             let severity = match diagnostic.severity {
@@ -225,22 +230,30 @@ impl Server {
             if let Some(suggestion) = &diagnostic.suggestion {
                 message.push_str(&format!("; did you mean `{suggestion}`?"));
             }
-            let ranges: Vec<Range> = match &diagnostic.locations {
+            for note in &diagnostic.notes {
+                message.push_str(&format!("; {note}"));
+            }
+            let sites: Vec<(Range, Option<Vec<DiagnosticRelatedInformation>>)> = match &diagnostic
+                .locations
+            {
                 Locations::Sites(sites) => sites
                     .iter()
                     .filter(|located| located.site.path == *path)
                     .filter_map(|located| {
-                        convert::range(line_index, located.site.span, self.encoding)
+                        let range = convert::range(line_index, located.site.span, self.encoding)?;
+                        let related =
+                            self.alias_uses_of_declaration_at(record, &uri, located.site.span);
+                        Some((range, related))
                     })
                     .collect(),
                 Locations::Files(files) => files
                     .iter()
                     .filter(|file| file.path == *path)
-                    .map(|_| Range::default())
+                    .map(|_| (Range::default(), None))
                     .collect(),
                 Locations::Roots(_) => Vec::new(),
             };
-            for range in ranges {
+            for (range, related_information) in sites {
                 diagnostics.push(Diagnostic {
                     range,
                     severity: Some(severity),
@@ -248,7 +261,7 @@ impl Server {
                     code_description: None,
                     source: Some("anchr".to_owned()),
                     message: message.clone(),
-                    related_information: None,
+                    related_information,
                     tags: None,
                     data: None,
                 });
@@ -257,17 +270,76 @@ impl Server {
         diagnostics
     }
 
+    /// When the diagnosed marker declares an alias, its uses in the same file, so an editor can
+    /// show what a broken declaration affects without the uses becoming errors themselves.
+    fn alias_uses_of_declaration_at(
+        &self,
+        record: &anchr_core::index::FileRecord,
+        uri: &Uri,
+        span: anchr_core::span::ByteSpan,
+    ) -> Option<Vec<DiagnosticRelatedInformation>> {
+        let declared = record
+            .markers
+            .iter()
+            .find_map(|marker| match &marker.payload {
+                MarkerPayload::Ref {
+                    alias: Some(declared),
+                    ..
+                } if marker.span == span => Some(&declared.alias),
+                MarkerPayload::Anchor { .. }
+                | MarkerPayload::Ref { .. }
+                | MarkerPayload::Use { .. } => None,
+            })?;
+        let related: Vec<DiagnosticRelatedInformation> = record
+            .markers
+            .iter()
+            .filter(|marker| {
+                matches!(&marker.payload, MarkerPayload::Use { alias } if alias == declared)
+            })
+            .filter_map(|marker| {
+                let range = convert::range(&record.line_index, marker.span, self.encoding)?;
+                Some(DiagnosticRelatedInformation {
+                    location: Location {
+                        uri: uri.clone(),
+                        range,
+                    },
+                    message: format!("use of alias `{declared}`"),
+                })
+            })
+            .collect();
+        (!related.is_empty()).then_some(related)
+    }
+
     fn definition(&mut self, params: GotoDefinitionParams) -> HandlerResult {
         let position = params.text_document_position_params;
-        let Some((path, marker)) = self.marker_at(&position.text_document.uri, position.position)
+        let Some((path, marker, _)) =
+            self.marker_at(&position.text_document.uri, position.position)
         else {
             return Ok(serde_json::Value::Null);
         };
-        let MarkerPayload::Ref { target, .. } = &marker.payload else {
-            return Ok(serde_json::Value::Null);
+        let locations = match &marker.payload {
+            MarkerPayload::Ref { target, .. } => self.definition_locations(target)?,
+            MarkerPayload::Use { alias } => {
+                let (current_root, index) = self.workspace.current();
+                let Some(binding) = index
+                    .file_record(&path)
+                    .and_then(|record| record.aliases.binding(alias))
+                else {
+                    return Ok(serde_json::Value::Null);
+                };
+                let mut locations = self.definition_locations(&binding.target)?;
+                if let (Some(line_index), Some(uri)) = (
+                    index.line_index(&path),
+                    convert::uri_for(&current_root.dir, &path),
+                ) && let Some(range) =
+                    convert::range(line_index, binding.declaration, self.encoding)
+                {
+                    locations.push(Location { uri, range });
+                }
+                locations
+            }
+            MarkerPayload::Anchor { .. } => return Ok(serde_json::Value::Null),
         };
-        let _ = path;
-        let locations = self.definition_locations(target)?;
         serde_json::to_value(GotoDefinitionResponse::Array(locations))
             .map_err(|error| HandlerError::Internal(error.to_string()))
     }
@@ -337,7 +409,8 @@ impl Server {
 
     fn references(&mut self, params: ReferenceParams) -> HandlerResult {
         let position = params.text_document_position;
-        let Some((_, marker)) = self.marker_at(&position.text_document.uri, position.position)
+        let Some((path, marker, _)) =
+            self.marker_at(&position.text_document.uri, position.position)
         else {
             return Ok(serde_json::Value::Null);
         };
@@ -348,7 +421,15 @@ impl Server {
                 id: id.clone(),
             },
             MarkerPayload::Ref { target, .. } => target.clone(),
-            MarkerPayload::Use { .. } => return Ok(serde_json::Value::Null),
+            MarkerPayload::Use { alias } => {
+                let Some(binding) = index
+                    .file_record(&path)
+                    .and_then(|record| record.aliases.binding(alias))
+                else {
+                    return Ok(serde_json::Value::Null);
+                };
+                binding.target.clone()
+            }
         };
         let mut locations: Vec<Location> = index
             .backrefs(&target)
@@ -374,34 +455,78 @@ impl Server {
 
     fn rename(&mut self, params: RenameParams) -> HandlerResult {
         let position = params.text_document_position;
-        let Some((_, marker)) = self.marker_at(&position.text_document.uri, position.position)
+        let Some((path, marker, offset)) =
+            self.marker_at(&position.text_document.uri, position.position)
         else {
             return Err(HandlerError::InvalidParams(
-                "no anchor or reference at this position".to_owned(),
+                "no anchor, reference, or alias at this position".to_owned(),
             ));
         };
         let (current_root, _) = self.workspace.current();
-        let old = match &marker.payload {
-            MarkerPayload::Anchor { id } => id.clone(),
+        let on_alias_token = |declared: &anchr_core::marker::DeclaredAlias| {
+            declared.span.contains(offset) || declared.span.end == offset
+        };
+        let edits = match &marker.payload {
+            MarkerPayload::Use { alias } => self.plan_alias(&path, alias, &params.new_name)?,
+            MarkerPayload::Ref {
+                alias: Some(declared),
+                ..
+            } if on_alias_token(declared) => {
+                self.plan_alias(&path, &declared.alias, &params.new_name)?
+            }
+            MarkerPayload::Anchor { id } => self.plan_anchor(id, &params.new_name)?,
             MarkerPayload::Ref {
                 target: RefTarget::Anchor { root, id },
                 ..
-            } if root.as_ref().is_none_or(|r| *r == current_root.name) => id.clone(),
-            MarkerPayload::Ref { .. } | MarkerPayload::Use { .. } => {
+            } if root.as_ref().is_none_or(|r| *r == current_root.name) => {
+                self.plan_anchor(id, &params.new_name)?
+            }
+            MarkerPayload::Ref { .. } => {
                 return Err(HandlerError::InvalidParams(
-                    "only anchors in the current root can be renamed".to_owned(),
+                    "only anchors in the current root and aliases can be renamed".to_owned(),
                 ));
             }
         };
-        let new = AnchorId::parse(&params.new_name).map_err(|error| {
-            HandlerError::InvalidParams(format!("`{}`: {error}", params.new_name))
-        })?;
-        let plan = plan_rename(&self.workspace, &old, &new)
-            .map_err(|error| HandlerError::InvalidParams(error.to_string()))?;
+        let edit = WorkspaceEdit {
+            changes: Some(self.workspace_changes(&edits)),
+            document_changes: None,
+            change_annotations: None,
+        };
+        serde_json::to_value(edit).map_err(|error| HandlerError::Internal(error.to_string()))
+    }
 
+    fn plan_anchor(
+        &self,
+        old: &AnchorId,
+        new_name: &str,
+    ) -> Result<BTreeMap<FilePath, Vec<ByteEdit>>, HandlerError> {
+        let new = AnchorId::parse(new_name)
+            .map_err(|error| HandlerError::InvalidParams(format!("`{new_name}`: {error}")))?;
+        let plan = plan_rename(&self.workspace, old, &new)
+            .map_err(|error| HandlerError::InvalidParams(error.to_string()))?;
+        Ok(plan.edits)
+    }
+
+    fn plan_alias(
+        &self,
+        path: &FilePath,
+        old: &Alias,
+        new_name: &str,
+    ) -> Result<BTreeMap<FilePath, Vec<ByteEdit>>, HandlerError> {
+        let new = Alias::parse(new_name)
+            .map_err(|error| HandlerError::InvalidParams(format!("`{new_name}`: {error}")))?;
+        let plan = plan_alias_rename(&self.workspace, path, old, &new)
+            .map_err(|error| HandlerError::InvalidParams(error.to_string()))?;
+        Ok(BTreeMap::from([(plan.path, plan.edits)]))
+    }
+
+    fn workspace_changes(
+        &self,
+        edits: &BTreeMap<FilePath, Vec<ByteEdit>>,
+    ) -> HashMap<Uri, Vec<TextEdit>> {
         let (root, index) = self.workspace.current();
         let mut changes: HashMap<Uri, Vec<TextEdit>> = HashMap::new();
-        for (path, edits) in &plan.edits {
+        for (path, edits) in edits {
             let Some(line_index) = index.line_index(path) else {
                 continue;
             };
@@ -419,12 +544,7 @@ impl Server {
                 .collect();
             changes.insert(uri, text_edits);
         }
-        let edit = WorkspaceEdit {
-            changes: Some(changes),
-            document_changes: None,
-            change_annotations: None,
-        };
-        serde_json::to_value(edit).map_err(|error| HandlerError::Internal(error.to_string()))
+        changes
     }
 
     fn document_symbols(&mut self, params: &DocumentSymbolParams) -> HandlerResult {
@@ -441,9 +561,21 @@ impl Server {
             .iter()
             .filter_map(|marker| match &marker.payload {
                 MarkerPayload::Anchor { id } => Some(document_symbol(
-                    id,
+                    id.as_str(),
+                    "@anchor",
+                    SymbolKind::KEY,
                     convert::range(line_index, marker.span, self.encoding)?,
                     convert::range(line_index, marker.body_span, self.encoding)?,
+                )),
+                MarkerPayload::Ref {
+                    alias: Some(declared),
+                    ..
+                } => Some(document_symbol(
+                    declared.alias.as_str(),
+                    "alias",
+                    SymbolKind::VARIABLE,
+                    convert::range(line_index, marker.span, self.encoding)?,
+                    convert::range(line_index, declared.span, self.encoding)?,
                 )),
                 MarkerPayload::Ref { .. } | MarkerPayload::Use { .. } => None,
             })
@@ -452,8 +584,9 @@ impl Server {
             .map_err(|error| HandlerError::Internal(error.to_string()))
     }
 
-    /// The marker under the cursor in an indexed document of the current root.
-    fn marker_at(&self, uri: &Uri, position: Position) -> Option<(FilePath, Marker)> {
+    /// The marker under the cursor in an indexed document of the current root, with the
+    /// cursor's byte offset so callers can tell which part of the marker it is on.
+    fn marker_at(&self, uri: &Uri, position: Position) -> Option<(FilePath, Marker, usize)> {
         let path = convert::file_path_in(&self.root_dir, uri)?;
         let (_, index) = self.workspace.current();
         let record = index.file_record(&path)?;
@@ -462,7 +595,7 @@ impl Server {
             .markers
             .iter()
             .find(|marker| marker.span.contains(offset) || marker.span.end == offset)?;
-        Some((path, marker.clone()))
+        Some((path, marker.clone(), offset))
     }
 }
 
@@ -492,11 +625,17 @@ fn publish(uri: Uri, diagnostics: Vec<Diagnostic>) -> Message {
 
 // `deprecated` is a required field of the protocol type even though the spec deprecates it.
 #[allow(deprecated)]
-fn document_symbol(id: &AnchorId, range: Range, selection_range: Range) -> DocumentSymbol {
+fn document_symbol(
+    name: &str,
+    detail: &str,
+    kind: SymbolKind,
+    range: Range,
+    selection_range: Range,
+) -> DocumentSymbol {
     DocumentSymbol {
-        name: id.as_str().to_owned(),
-        detail: Some("@anchor".to_owned()),
-        kind: SymbolKind::KEY,
+        name: name.to_owned(),
+        detail: Some(detail.to_owned()),
+        kind,
         tags: None,
         deprecated: None,
         range,
