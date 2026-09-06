@@ -78,6 +78,62 @@ fn coverage_reports_candidates_and_never_fails() {
 }
 
 #[test]
+fn alias_words_are_proposed_and_unused_aliases_are_listed() {
+    let fixture = Fixture::new(&[
+        (
+            "docs/a.md",
+            "@ref[docs/guide.md as Guide] @ref[docs/guide.md as Spare]\nRead the Guide and `Guide`. @[Guide].\n",
+        ),
+        ("docs/guide.md", "# Guide\n"),
+    ]);
+    fixture
+        .anchr()
+        .args(["coverage", "--color", "never"])
+        .assert()
+        .code(0)
+        .stdout(predicate::str::contains("docs/a.md:2:10: Guide — could be @[Guide]"))
+        .stdout(predicate::str::contains("docs/a.md:2:20: `Guide` — could be @[Guide]"))
+        .stdout(predicate::str::contains("Spare — alias declared but never used"))
+        .stdout(predicate::str::contains(
+            "3 of 5 reference-shaped strings are annotated; 2 could be, 0 do not resolve, 0 are ambiguous; 1 alias is declared but never used",
+        ));
+
+    let output = fixture
+        .anchr()
+        .args(["coverage", "--format", "json"])
+        .output()
+        .unwrap();
+    let json: serde_json::Value = serde_json::from_slice(&output.stdout).unwrap();
+    assert_eq!(json["summary"]["unused_aliases"], 1);
+    let kinds: Vec<&str> = json["candidates"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .map(|c| c["kind"].as_str().unwrap())
+        .collect();
+    assert_eq!(kinds, vec!["proposal", "proposal", "unused-alias"]);
+
+    fixture
+        .anchr()
+        .args(["annotate", "--write", "--color", "never"])
+        .assert()
+        .code(0)
+        .stdout(predicate::str::contains("annotated 2 references"));
+    assert_eq!(
+        fixture.read("docs/a.md"),
+        "@ref[docs/guide.md as Guide] @ref[docs/guide.md as Spare]\nRead the @[Guide] and @[Guide]. @[Guide].\n"
+    );
+    fixture
+        .anchr()
+        .args(["check", "--color", "never"])
+        .assert()
+        .code(0)
+        .stdout(predicate::str::contains(
+            "checked 2 references and 3 alias uses in 2 files",
+        ));
+}
+
+#[test]
 fn annotate_only_writes_with_the_flag_and_the_result_passes_check() {
     let fixture = fixture();
     fixture

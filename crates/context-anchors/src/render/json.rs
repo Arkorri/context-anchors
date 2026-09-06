@@ -226,6 +226,7 @@ pub fn write_coverage(
                 None,
                 declared_in.iter().map(ToString::to_string).collect(),
             ),
+            CandidateKind::UnusedAlias { .. } => ("unused-alias", None, None, Vec::new()),
         };
         candidates.push(JsonCandidate {
             kind,
@@ -252,6 +253,7 @@ pub fn write_coverage(
             proposals: report.summary.proposals,
             unresolvable: report.summary.unresolvable,
             ambiguous: report.summary.ambiguous,
+            unused_aliases: report.summary.unused_aliases,
         },
         candidates,
     };
@@ -274,6 +276,7 @@ struct JsonCoverageSummary {
     proposals: usize,
     unresolvable: usize,
     ambiguous: usize,
+    unused_aliases: usize,
 }
 
 #[derive(Serialize)]

@@ -11,7 +11,7 @@ use regex::Regex;
 use crate::check::Workspace;
 use crate::edit::TextEdit;
 use crate::index::Site;
-use crate::marker::parse_target;
+use crate::marker::{Alias, parse_target};
 use crate::resolve::{Resolution, Resolver};
 use crate::root::FilePath;
 use crate::span::ByteSpan;
@@ -39,6 +39,15 @@ static IDENTIFIER: LazyLock<Regex> = LazyLock::new(|| {
     Regex::new(r"^[A-Za-z_$][A-Za-z0-9_$]*$").expect("identifier regex is a valid literal")
 });
 
+/// An identifier-shaped word; matched against the file's declared aliases.
+static WORD: LazyLock<Regex> = LazyLock::new(|| {
+    #[expect(
+        clippy::expect_used,
+        reason = "the pattern is a literal, checked by tests"
+    )]
+    Regex::new(r"[A-Za-z_][A-Za-z0-9_]*").expect("word regex is a valid literal")
+});
+
 /// Backtick spans inside a comment, the comment-world equivalent of markdown code spans.
 static COMMENT_CODE_SPAN: LazyLock<Regex> = LazyLock::new(|| {
     #[expect(
@@ -57,6 +66,9 @@ pub enum CandidateKind {
     Unresolvable { reason: String },
     /// An identifier declared in more than one scanned file; a human must pick.
     Ambiguous { declared_in: Vec<FilePath> },
+    /// Declared with `as` in this file and never written as `@[alias]`. Advisory only, never
+    /// an edit: the fix is to use it or drop the clause.
+    UnusedAlias { alias: Alias },
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -70,10 +82,13 @@ pub struct Candidate {
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
 pub struct CoverageSummary {
+    /// Direct references plus bound alias uses: every checked mention.
     pub annotated_refs: usize,
     pub proposals: usize,
     pub unresolvable: usize,
     pub ambiguous: usize,
+    /// Not reference-shaped strings, so not part of `total`.
+    pub unused_aliases: usize,
 }
 
 impl CoverageSummary {
@@ -145,19 +160,23 @@ pub fn coverage(workspace: &Workspace, only_files: &[FilePath]) -> CoverageRepor
         };
         let mut occupied: Vec<ByteSpan> = record.markers.iter().map(|m| m.span).collect();
         occupied.extend(record.malformed.iter().map(|m| m.span));
+        let aliases: Vec<&Alias> = record.aliases.aliases().collect();
 
         for region in regions.iter() {
             let Some(text) = source.get(region.span.start..region.span.end) else {
                 continue;
             };
-            for token in tokens(text, region.kind) {
+            for token in tokens(text, region.kind, &aliases) {
                 let span = token.span.shifted_by(region.span.start);
                 if occupied.iter().any(|taken| taken.intersects(span)) {
                     continue;
                 }
-                let kind = match token.shape {
+                let kind = match &token.shape {
                     Shape::Path => classify_path(&mut resolver, &root.name, &token.text),
                     Shape::Identifier => classify_identifier(&symbols, &token.text),
+                    Shape::Alias(alias) => Some(CandidateKind::Proposal {
+                        replacement: format!("@[{alias}]"),
+                    }),
                 };
                 let Some(kind) = kind else {
                     continue;
@@ -179,8 +198,42 @@ pub fn coverage(workspace: &Workspace, only_files: &[FilePath]) -> CoverageRepor
         }
     }
 
+    let mut unused: Vec<(&FilePath, &Alias, ByteSpan)> = index
+        .unused_aliases()
+        .filter(|(path, _, _)| only_files.is_empty() || only_files.contains(path))
+        .map(|(path, alias, binding)| (path, alias, binding.alias_span))
+        .collect();
+    unused.sort();
+    for (path, alias, alias_span) in unused {
+        let region = index
+            .file_record(path)
+            .and_then(|record| {
+                record
+                    .markers
+                    .iter()
+                    .find(|marker| marker.span.contains(alias_span.start))
+            })
+            .map_or(RegionKind::Prose, |marker| marker.region);
+        candidates.push(Candidate {
+            site: Site {
+                root: root.name.clone(),
+                path: path.clone(),
+                span: alias_span,
+                region,
+            },
+            text: alias.to_string(),
+            kind: CandidateKind::UnusedAlias {
+                alias: alias.clone(),
+            },
+        });
+    }
+
+    let bound_uses = index
+        .alias_uses()
+        .filter(|use_site| use_site.binding.is_some())
+        .count();
     let mut summary = CoverageSummary {
-        annotated_refs: index.refs().count(),
+        annotated_refs: index.refs().count() + bound_uses,
         ..CoverageSummary::default()
     };
     for candidate in &candidates {
@@ -188,6 +241,7 @@ pub fn coverage(workspace: &Workspace, only_files: &[FilePath]) -> CoverageRepor
             CandidateKind::Proposal { .. } => summary.proposals += 1,
             CandidateKind::Unresolvable { .. } => summary.unresolvable += 1,
             CandidateKind::Ambiguous { .. } => summary.ambiguous += 1,
+            CandidateKind::UnusedAlias { .. } => summary.unused_aliases += 1,
         }
     }
     CoverageReport {
@@ -196,10 +250,12 @@ pub fn coverage(workspace: &Workspace, only_files: &[FilePath]) -> CoverageRepor
     }
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq, Eq)]
 enum Shape {
     Path,
     Identifier,
+    /// A word equal to an alias this file declares: the highest-confidence candidate there is.
+    Alias(Alias),
 }
 
 struct Token {
@@ -210,9 +266,58 @@ struct Token {
     shape: Shape,
 }
 
-fn tokens(text: &str, kind: RegionKind) -> Vec<Token> {
-    match kind {
+/// Alias matches come first and shadow any other token on the same bytes: a code span holding
+/// `Analyzer` is a use of this file's alias before it is a symbol declared somewhere.
+fn tokens(text: &str, kind: RegionKind, aliases: &[&Alias]) -> Vec<Token> {
+    let mut found = alias_tokens(text, kind, aliases);
+    let taken: Vec<ByteSpan> = found.iter().map(|token| token.span).collect();
+    let others: Vec<Token> = match kind {
         RegionKind::InlineCode => code_span_token(text, ByteSpan::new(0, text.len()))
+            .into_iter()
+            .collect(),
+        RegionKind::Comment => {
+            let mut tokens = Vec::new();
+            let mut covered = Vec::new();
+            for captures in COMMENT_CODE_SPAN.captures_iter(text) {
+                let Some(whole) = captures.get(0) else {
+                    continue;
+                };
+                covered.push(ByteSpan::from(whole.range()));
+                tokens.extend(code_span_token(
+                    whole.as_str(),
+                    ByteSpan::from(whole.range()),
+                ));
+            }
+            tokens.extend(
+                path_tokens(text).filter(|token| !covered.iter().any(|c| c.intersects(token.span))),
+            );
+            tokens
+        }
+        RegionKind::Prose | RegionKind::Whole => path_tokens(text).collect(),
+    };
+    found.extend(
+        others
+            .into_iter()
+            .filter(|token| !taken.iter().any(|span| span.intersects(token.span))),
+    );
+    found
+}
+
+/// Exact, case-sensitive matches against the file's own aliases: a whole code span holding
+/// one, or a bare word outside code spans and link text.
+fn alias_tokens(text: &str, kind: RegionKind, aliases: &[&Alias]) -> Vec<Token> {
+    if aliases.is_empty() {
+        return Vec::new();
+    }
+    let declared = |word: &str| aliases.iter().find(|alias| alias.as_str() == word).copied();
+    let alias_token = |span: ByteSpan, alias: &Alias| Token {
+        span,
+        text: alias.to_string(),
+        shape: Shape::Alias(alias.clone()),
+    };
+    match kind {
+        RegionKind::InlineCode => declared(text.trim_matches('`').trim())
+            .map(|alias| alias_token(ByteSpan::new(0, text.len()), alias))
             .into_iter()
             .collect(),
         RegionKind::Comment => {
@@ -223,18 +328,35 @@ fn tokens(text: &str, kind: RegionKind) -> Vec<Token> {
                     continue;
                 };
                 covered.push(ByteSpan::from(whole.range()));
-                found.extend(code_span_token(
-                    whole.as_str(),
-                    ByteSpan::from(whole.range()),
-                ));
+                if let Some(alias) = declared(whole.as_str().trim_matches('`').trim()) {
+                    found.push(alias_token(ByteSpan::from(whole.range()), alias));
+                }
             }
             found.extend(
-                path_tokens(text).filter(|token| !covered.iter().any(|c| c.intersects(token.span))),
+                alias_words(text, &declared)
+                    .filter(|token| !covered.iter().any(|c| c.intersects(token.span))),
             );
             found
         }
-        RegionKind::Prose | RegionKind::Whole => path_tokens(text).collect(),
+        RegionKind::Prose | RegionKind::Whole => alias_words(text, &declared).collect(),
     }
+}
+
+fn alias_words<'t>(
+    text: &'t str,
+    declared: &'t dyn Fn(&str) -> Option<&'t Alias>,
+) -> impl Iterator<Item = Token> + 't {
+    WORD.find_iter(text).filter_map(move |word| {
+        if is_glued(text, word.start()) {
+            return None;
+        }
+        let alias = declared(word.as_str())?;
+        Some(Token {
+            span: ByteSpan::from(word.range()),
+            text: alias.to_string(),
+            shape: Shape::Alias(alias.clone()),
+        })
+    })
 }
 
 /// A code span whose entire content is one path or one identifier.
@@ -416,6 +538,7 @@ mod tests {
                     CandidateKind::Ambiguous { declared_in } => {
                         format!("ambiguous x{}", declared_in.len())
                     }
+                    CandidateKind::UnusedAlias { .. } => "unused alias".to_owned(),
                 };
                 (c.site.path.to_string(), c.text.clone(), kind)
             })
@@ -507,6 +630,61 @@ mod tests {
             ]
         );
         assert_eq!(report.summary.ambiguous, 1);
+    }
+
+    #[test]
+    fn alias_words_are_proposed_per_file_and_unused_aliases_are_advisories() {
+        let fixture = Fixture::new(&[
+            (
+                "docs/a.md",
+                "@ref[docs/guide.md as Guide] @ref[docs/guide.md as Spare]\nRead the Guide, or `Guide`; not [Guide](docs/guide.md), Guidebook, or guide. @[Guide] is done.\n",
+            ),
+            ("docs/b.md", "Guide is just a word here; so is `Guide`.\n"),
+            ("docs/guide.md", "# Guide\n"),
+            (
+                "src/x.rs",
+                "// The Guide struct: `Guide` and Guide\npub struct Guide;\n",
+            ),
+        ]);
+        let report = fixture.coverage();
+        let described = describe(&report);
+        assert_eq!(
+            described
+                .iter()
+                .filter(|(path, _, kind)| path == "docs/a.md" && kind == "propose @[Guide]")
+                .map(|(_, text, _)| text.as_str())
+                .collect::<Vec<_>>(),
+            vec!["Guide", "`Guide`"]
+        );
+        assert_eq!(
+            described
+                .iter()
+                .filter(|(path, _, _)| path == "docs/a.md")
+                .filter(|(_, _, kind)| kind == "unused alias")
+                .map(|(_, text, _)| text.as_str())
+                .collect::<Vec<_>>(),
+            vec!["Spare"]
+        );
+        assert!(
+            described
+                .iter()
+                .filter(|(path, _, _)| path != "docs/a.md")
+                .all(|(_, _, kind)| !kind.contains("@[")),
+            "{described:?}"
+        );
+        assert_eq!(report.summary.annotated_refs, 3);
+        assert_eq!(report.summary.unused_aliases, 1);
+        assert_eq!(
+            report.summary.total(),
+            report.summary.annotated_refs
+                + report.summary.proposals
+                + report.summary.unresolvable
+                + report.summary.ambiguous
+        );
+        let edits = report.proposals();
+        let a = &edits[&FilePath::new(Utf8PathBuf::from("docs/a.md")).unwrap()];
+        assert!(a.iter().all(|edit| edit.replacement == "@[Guide]"));
+        assert_eq!(a.len(), 2);
     }
 
     #[test]

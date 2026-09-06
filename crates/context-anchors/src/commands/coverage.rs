@@ -35,6 +35,7 @@ pub fn run(args: &CoverageArgs) -> anyhow::Result<Outcome> {
                             .collect::<Vec<_>>()
                             .join(", ")
                     ),
+                    CandidateKind::UnusedAlias { .. } => "alias declared but never used".to_owned(),
                 };
                 writeln!(
                     stdout,
@@ -43,9 +44,14 @@ pub fn run(args: &CoverageArgs) -> anyhow::Result<Outcome> {
                 )?;
             }
             let summary = report.summary;
+            let unused = match summary.unused_aliases {
+                0 => String::new(),
+                1 => "; 1 alias is declared but never used".to_owned(),
+                n => format!("; {n} aliases are declared but never used"),
+            };
             writeln!(
                 stdout,
-                "{} of {} reference-shaped strings are annotated; {} could be, {} do not resolve, {} are ambiguous",
+                "{} of {} reference-shaped strings are annotated; {} could be, {} do not resolve, {} are ambiguous{unused}",
                 summary.annotated_refs,
                 summary.total(),
                 summary.proposals,
