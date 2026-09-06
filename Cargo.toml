@@ -61,3 +61,8 @@ opt-level = 3
 strip = "symbols"
 overflow-checks = true
 panic = "unwind"
+
+# The profile that 'dist' will build with; identical to release so shipped binaries match
+# what CI tests and the size budget measure.
+[profile.dist]
+inherits = "release"
