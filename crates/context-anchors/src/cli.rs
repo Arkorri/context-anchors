@@ -15,20 +15,28 @@ pub struct Cli {
 
 #[derive(Debug, Subcommand)]
 pub enum Command {
+    // @anchor[cli/check]
     /// Resolve every reference in the current root and report what does not resolve.
     Check(CheckArgs),
+    // @anchor[cli/backrefs]
     /// List every reference to a target.
     Backrefs(BackrefsArgs),
+    // @anchor[cli/rename]
     /// Rename an anchor id, rewriting its declaration and every reference to it.
     Rename(RenameArgs),
+    // @anchor[cli/coverage]
     /// Report reference-shaped strings that carry no marker. Never fails.
     Coverage(CoverageArgs),
+    // @anchor[cli/annotate]
     /// Propose `@ref` and `@[alias]` markers for reference-shaped strings whose target resolves.
     Annotate(AnnotateArgs),
+    // @anchor[cli/init]
     /// Write an `anchr.toml`, the marker guide for agents, and optional editor hooks.
     Init(InitArgs),
+    // @anchor[cli/lsp]
     /// Run a Language Server Protocol server over stdio.
     Lsp,
+    // @anchor[cli/completions]
     /// Print a shell completion script.
     Completions(CompletionsArgs),
 }

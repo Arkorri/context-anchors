@@ -4,6 +4,11 @@
 **Package / repo:** `context-anchors`
 **Command:** `anchr`
 **Markers:** `@anchor` / `@ref`
+<!-- refs -->
+@ref[#cli/check as Check]
+@ref[#cli/coverage as Coverage]
+@ref[#cli/backrefs as Backrefs]
+@ref[#cli/rename as Rename]
 
 ---
 
@@ -151,7 +156,7 @@ mention.
 - Scope is the **file**. The same alias in two files is two unrelated declarations.
 - A use with no declaration in its file is an **error**, with a did-you-mean over the file's
   aliases. Two declarations of one alias in a file is an error. An unused alias is reported by
-  `coverage`, never by `check`.
+  @[Coverage], never by @[Check].
 - The declaration is the reference: it is resolved, and a broken target reports there, once. Uses
   bind to it and are not re-resolved. Renaming the target in code is one edit per file.
 - Aliases are ASCII identifiers. `@anchor` is never aliased; an anchor is the identity of a line.
@@ -217,7 +222,7 @@ An absent external root falls into this same class. One concept, applied consist
 
 ### Error reporting is the product
 
-If a single batch `check` is the whole guarantee, then the error report *is* the user
+If a single batch @[Check] is the whole guarantee, then the error report *is* the user
 experience. Three requirements, not polish:
 
 **Group by cause, not by site.** Deleting `@anchor[auth/flow]` with 12 live references is *one*
@@ -291,9 +296,9 @@ The query surface maps onto LSP exactly, which means one index serves every cons
 
 | LSP | anchr |
 |---|---|
-| diagnostics | `check` |
+| diagnostics | @[Check] |
 | go-to-definition | follow a ref |
-| find-references | `backrefs` |
+| find-references | @[Backrefs] |
 | rename | refactor an `@anchor` ID |
 | document symbols | anchors in a file |
 
@@ -317,7 +322,7 @@ Distribute prebuilt binaries via curl, homebrew, and an npx wrapper.
 
 Design rules committed to, in priority order.
 
-1. **`check` never writes.** Fix is always a separate command invoked deliberately. A validation
+1. **@[Check] never writes.** Fix is always a separate command invoked deliberately. A validation
    step that rewrites files underneath an agent desynchronizes the agent's model of the file and
    produces either a rejected edit or, worse, a successful edit against a stale mental model. If
    any integration does auto-apply fixes, it must announce what changed and which files to
@@ -325,7 +330,7 @@ Design rules committed to, in priority order.
 
 2. **Batch validation is the sole guarantee.** Edit freely by any means — the tool, an editor,
    an agent, `sed` — then run one validation that reports everything at once. Mutating commands
-   (`rename`, `rm`, `fix`) are convenience only and are never load-bearing. Guarding the commands
+   (@[Rename], `rm`, `fix`) are convenience only and are never load-bearing. Guarding the commands
    *and* validating globally would be redundant, and the guards would be trivially bypassed
    anyway. This is the compiler model: modify however you like, get all errors in one batch.
 
@@ -352,7 +357,7 @@ a `Result`, and the paragraph describing it is silently false.
 Hashing the target and flagging changes would catch this. It is deferred because **it is a
 categorically different mechanism from everything else here.** Resolution is binary and
 objective. A content hash cannot distinguish a variable rename inside a function body from a
-semantic inversion — it produces suspicion, not a finding. Letting that into `check` dilutes a
+semantic inversion — it produces suspicion, not a finding. Letting that into @[Check] dilutes a
 hard guarantee with a soft signal, and the predictable result is people disagreeing with
 failures and reaching for `--no-verify`.
 

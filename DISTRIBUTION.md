@@ -55,7 +55,7 @@ and different schedules.
 | Artifact | Channel | Ships |
 |---|---|---|
 | Binary (CLI + LSP) | GitHub Releases, npm | v1 |
-| Agent integration (instructions, hooks, config) | `init` command + a Claude Code marketplace listing | v1 |
+| Agent integration (instructions, hooks, config) | @ref[#cli/init] command + a Claude Code marketplace listing | v1 |
 | Editor extension | VS Code Marketplace, OpenVSX | deferred |
 
 Only the binary is a packaging problem in the conventional sense.
@@ -117,8 +117,8 @@ Node is required only to *resolve* the package, never to run the tool. The binar
 
 **4. Claude Code marketplace listing**
 
-A repository with `.claude-plugin/marketplace.json`, kept deliberately thin — it wraps `init`
-rather than duplicating it. Worth maintaining purely for discovery, since
+A repository with `.claude-plugin/marketplace.json`, kept deliberately thin — it wraps
+@ref[#cli/init] rather than duplicating it. Worth maintaining purely for discovery, since
 `/plugin marketplace add` is how those users find tools.
 
 ### Deferred, and cheap to add
@@ -170,17 +170,18 @@ costs one implementation.
   first because that is the dogfooding environment. Add others when someone asks, not
   speculatively.
 
-`init` is what keeps this from becoming N packages: one binary that wires up whatever it detects,
-rather than a separate maintained artifact per vendor.
+@ref[#cli/init] is what keeps this from becoming N packages: one binary that wires up whatever it
+detects, rather than a separate maintained artifact per vendor.
 
 ### Note on MCP
 
-`DESIGN.md` defers MCP to v2 on the grounds that agents can shell out to the CLI. That reasoning
+@ref[DESIGN.md] defers MCP to v2 on the grounds that agents can shell out to the CLI. That reasoning
 holds for **capability** but not for **distribution** — MCP is the only integration surface that
 is vendor-neutral by construction.
 
-Be precise about what it buys, though: MCP makes `check` *callable*, not *automatic*. It does not
-replace a hook. Pull it forward only if cross-vendor reach is a v1 goal rather than a later one.
+Be precise about what it buys, though: MCP makes @ref[#cli/check] *callable*, not *automatic*. It
+does not replace a hook. Pull it forward only if cross-vendor reach is a v1 goal rather than a
+later one.
 
 ---
 
@@ -217,7 +218,7 @@ permissive is the only sensible choice.
    unprotected. Worth publishing a placeholder that points at `context-anchors`, or worth leaving
    alone as registry clutter?
 2. **Is MCP a v1 requirement?** Depends entirely on whether cross-vendor reach is a launch goal
-   or a follow-up. If launch, it moves up from `DESIGN.md` v2.
+   or a follow-up. If launch, it moves up from @ref[DESIGN.md] v2.
 3. **Which grammars make the core bundle?** Driven by where the tool is actually used first.
 4. **Does the CI action ship as a composite GitHub Action, or as documentation for calling the
    binary directly?** The action is friendlier; the documentation is portable to GitLab, Buildkite,

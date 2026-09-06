@@ -2,6 +2,14 @@
 
 **Status:** implemented; §7 lists the stages as they were built. Companion to
 @ref[DESIGN.md] (the guarantee) and @ref[CODE_DESIGN.md] (the pipeline this extends).
+<!-- refs -->
+@ref[crates/anchr-core/src/text/mod.rs#FileAnalyzer as FileAnalyzer]
+@ref[crates/anchr-core/src/resolve/mod.rs#Unresolved as Unresolved]
+@ref[#cli/check as Check]
+@ref[#cli/coverage as Coverage]
+@ref[#cli/backrefs as Backrefs]
+@ref[#cli/annotate as Annotate]
+@ref[#cli/init as Init]
 
 ## 1. Problem
 
@@ -12,24 +20,25 @@ authoring cost of the grammar. A qualified symbol reference is about fifty chara
 @ref[crates/anchr-core/src/text/mod.rs#FileAnalyzer]
 ```
 
-A document that mentions `FileAnalyzer` ten times will get one such reference and nine backticked
-mentions. Those nine are exactly the rot the tool exists to catch, and today neither `check` nor
-`coverage` can see them: `check` only knows about markers, and `coverage` classifies a backticked
-identifier that resolves nowhere as "ignored", because most backticked words are `HashMap`.
+A document that mentions @[FileAnalyzer] ten times will get one such reference and nine backticked
+mentions. Those nine are exactly the rot the tool exists to catch, and today neither @[Check] nor
+@[Coverage] can see them: @[Check] only knows about markers, and @[Coverage] classifies a
+backticked identifier that resolves nowhere as "ignored", because most backticked words are
+`HashMap`.
 
 The convention adopted in the dogfood pass, "annotate the first mention per section", papers over
 this and fails the one test an authoring rule has to pass: the writer cannot decide from the
-sentence alone. To add a sentence about `FileAnalyzer`, they must know whether the section already
+sentence alone. To add a sentence about @[FileAnalyzer], they must know whether the section already
 carries a reference, which means reading the section, knowing that the granularity is "section",
 and knowing what counts as one. An agent has to grep first. Every step is a place to be wrong, and
 being wrong is silent.
 
 Two concrete failures from that pass:
 
-- `FilePath` appeared twice in the implementation notes and was never annotated. The coverage
-  report listed it among 154 candidates that were deliberate skips, and nobody could tell the
-  miss from the skips.
-- Eight mentions of `init`: the tool proposed a symbol reference to a function that happens to
+- @ref[crates/anchr-core/src/root.rs#FilePath] appeared twice in the implementation notes and was
+  never annotated. The coverage report listed it among 154 candidates that were deliberate skips,
+  and nobody could tell the miss from the skips.
+- Eight mentions of @[Init]: the tool proposed a symbol reference to a function that happens to
   share the name, when the prose meant the CLI subcommand. Under a first-mention rule the
   annotated mention passes for the wrong reason and the other seven are unchecked.
 
@@ -45,8 +54,8 @@ The construct is `import x as y`, and its semantics are borrowed whole rather th
 | Use of an undeclared identifier is an error | A use with no declaration in the file is an error |
 | Duplicate declaration in one scope is an error | Two declarations of one alias in a file is an error |
 | A broken import errors at the import, not at every use | The declaration is resolved; uses bind to it and are not re-resolved |
-| Unused import is a lint, not an error | Unused alias is reported by `coverage`, never by `check` |
-| Style guides put imports at the top; the grammar allows them anywhere | Declarations anywhere in the file; the `init` template teaches an index block at the top |
+| Unused import is a lint, not an error | Unused alias is reported by @[Coverage], never by @[Check] |
+| Style guides put imports at the top; the grammar allows them anywhere | Declarations anywhere in the file; the @[Init] template teaches an index block at the top |
 | Name resolution is a semantic pass after lexing | Binding happens in the index, not the lexer |
 
 Existing anchr precedent points the same way. `@anchor` already decouples an identity from the
@@ -148,7 +157,7 @@ root-level table (§8).
 
 **Declaration.** `@ref[target as Alias]` is an ordinary reference in every existing sense: it is
 resolved by @ref[crates/anchr-core/src/resolve/mod.rs#Resolver], counted in `refs_checked`, a
-reference site for `backrefs`, and its `id_span` is rewritten by `anchr rename` when the target is
+reference site for @[Backrefs], and its `id_span` is rewritten by `anchr rename` when the target is
 an anchor. It additionally records the alias and its span.
 
 **Use.** `@[Alias]` binds to the file's declaration of `Alias`. It is not re-resolved: the
@@ -161,7 +170,7 @@ so `refs_checked + alias_uses` is exactly the number of checked mentions. Uses a
 
 **Duplicates.** Two declarations of one alias in a file is `AliasDuplicate`, an error listing every
 declaration site, even when both name the same target (rustc's E0252 makes the same call). Uses
-of a duplicated alias bind to the *first* declaration in file order for navigation and `backrefs`
+of a duplicated alias bind to the *first* declaration in file order for navigation and @[Backrefs]
 and raise no diagnostic of their own: the import lines are the cause and the only fix sites.
 
 **Malformed declaration.** `@ref[bad path as X]` is one malformed-marker diagnostic and registers
@@ -175,14 +184,15 @@ Grouping is unchanged.
 
 **Unused.** A declared alias with zero uses is reported by `anchr coverage`
 (@ref[crates/anchr-core/src/coverage.rs]) as an advisory line and JSON candidate kind
-`unused-alias`. `check` never reports it: check's contract is soundness of what is asserted, and
+`unused-alias`. @[Check] never reports it: check's contract is soundness of what is asserted, and
 an unused import asserts nothing false.
 
 **Diagnostics are keyed by file.** `AliasUndeclared` and `AliasDuplicate` carry the file path in
 their @ref[crates/anchr-core/src/diagnostic.rs#DiagnosticKind] key, because the file *is* the
 scope: "alias `Analyser` is not declared in `docs/x.md`" is the cause, and the did-you-mean
 candidates differ per file. This is the same reasoning that put the path in `NoGrammar`. They are
-siblings of `DuplicateAnchor`, not `Unresolved` variants: `Unresolved` is the resolver's output,
+siblings of `DuplicateAnchor`, not @[Unresolved] variants: @[Unresolved] is the resolver's
+output,
 and the resolver has no file context.
 
 **External roots** are scanned anchors-only and drop all references today; declarations and uses
@@ -214,7 +224,7 @@ Each walker thread owns an @[Analyzer]; the resolver has its own @[Analyzer].
 and rebuilt per run.
 ```
 
-After `FileAnalyzer` is renamed to `Analyzer` in code:
+After @[FileAnalyzer] is renamed to `Analyzer` in code:
 
 ```text
 error: no declaration named `FileAnalyzer` in `crates/anchr-core/src/text/mod.rs` (root `repo`)
@@ -234,14 +244,14 @@ error: alias `Analyser` is not declared in `docs/internals.md`
 ## 6. Authoring conventions
 <!-- @anchor[aliases/conventions] -->
 
-Best practice, not grammar. The `init` template (@ref[crates/context-anchors/templates/ANCHR.md])
+Best practice, not grammar. The @[Init] template (@ref[crates/context-anchors/templates/ANCHR.md])
 teaches these.
 
 - **Declarations go in an index block at the top of the file**, under an HTML comment
   (`<!-- refs -->`), the way imports sit at the top of a module. The grammar allows them anywhere,
   as most languages do, and every style guide then puts them at the top anyway.
 - **Alias the document's name for the thing, not the code's** when the two differ (`Analyzer`
-  rather than `FileAnalyzer`). A rename in code then touches one line.
+  rather than @[FileAnalyzer]). A rename in code then touches one line.
 - **Concepts without a declaration get an anchor.** A CLI subcommand or a section is not a symbol;
   put `@anchor[cli/init]` where it is defined and alias the anchor reference, rather than pointing
   a symbol reference at a function that happens to share the name.
@@ -250,29 +260,31 @@ teaches these.
 
 ## 7. Pipeline changes
 
-Names refer to `crates/anchr-core/src` unless noted; each item is one PR in the stack.
+Names refer to @ref[crates/anchr-core/src/] unless noted; each item is one PR in the stack.
 
-1. **Grammar and lexing.** `marker/alias.rs` (new): `Alias` newtype with allowlist and limits.
+1. **Grammar and lexing.** @ref[crates/anchr-core/src/marker/alias.rs] (new):
+   @ref[crates/anchr-core/src/marker/alias.rs#Alias] newtype with allowlist and limits.
    @ref[crates/anchr-core/src/marker/target.rs#parse_target] tokenises the body first, runs the
    existing grammar on the target token, and shifts spans by the token's offset. The regex above;
    `MarkerKind::Use`, `MarkerPayload::Use`, an alias on `MarkerPayload::Ref`; a malformed reason
    for invalid aliases. Existing exhaustive matches learn to ignore uses; fuzz targets `lex` and
    `parse-target` cover the new shapes. Green on its own: no `@[` exists in scanned files today.
-2. **Binding and diagnostics.** The per-file alias table in `FileRecord`, built when a file is
-   indexed and looked up lazily so the table is the single owner. `backrefs` chains direct
-   references with bound uses; a reference site records whether it came through an alias so
-   `rename` skips uses explicitly. `AliasUndeclared` and `AliasDuplicate`; the summary's
+2. **Binding and diagnostics.** The per-file alias table in
+   @ref[crates/anchr-core/src/index.rs#FileRecord], built when a file is indexed and looked up
+   lazily so the table is the single owner. @[Backrefs] chains direct references with bound uses;
+   a reference site records whether it came through an alias so @ref[#cli/rename] skips uses
+   explicitly. `AliasUndeclared` and `AliasDuplicate`; the summary's
    `alias_uses`; JSON codes `alias-undeclared` and `alias-duplicate` (schema stays 1, the change
    is additive); the human summary line.
-3. **Coverage.** Per-file, case-sensitive matches against that file's aliases: an inline code span
+3. **@[Coverage].** Per-file, case-sensitive matches against that file's aliases: an inline code span
    whose whole content is an alias (high confidence) and a bare word outside links (lower; an alias
-   like `Scope` matches English) become `@[X]` proposals that `annotate` applies. Unused aliases
+   like `Scope` matches English) become `@[X]` proposals that @[Annotate] applies. Unused aliases
    are advisories, excluded from the proposal list and from the total, since they are not
    reference-shaped strings. Bound uses count as annotated.
 4. **Language server** (@ref[crates/context-anchors/src/lsp/server.rs]). Definition on a use
    returns the target's locations plus the declaration; references synthesize the target from the
    binding; rename disambiguates by cursor offset; document symbols list declarations.
-5. **Documentation and dogfood.** @ref[#design/grammar], the README, the `init` template, and the
+5. **Documentation and dogfood.** @ref[#design/grammar], the README, the @[Init] template, and the
    code-level design are updated; this repository's own documents convert their repeated mentions
    to aliases with an index block per file, and the before/after coverage numbers are recorded.
 
@@ -291,9 +303,9 @@ file's aliases. No new filesystem reads. The lexer stays a single linear-time re
 - **A "not a reference" marker** for acknowledging coverage candidates. With aliases in place the
   remaining candidates are heuristic noise, better handled by a config ignore list and a better
   tokenizer.
-- **Smarter `annotate`.** Propose a declaration plus uses for repeated identifiers instead of N
+- **Smarter @[Annotate].** Propose a declaration plus uses for repeated identifiers instead of N
   qualified references. Needs aliases to exist first.
 - **CLI alias rename.** `anchr rename` stays anchor-only; file-local rename is a language-server
   operation until a CLI need appears.
-- **Warning severity in `check`.** Unused aliases would be the first warning. `coverage` is the
+- **Warning severity in @[Check].** Unused aliases would be the first warning. @[Coverage] is the
   existing advisory channel, and `--strict` already has a meaning.
