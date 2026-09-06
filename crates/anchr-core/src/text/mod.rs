@@ -7,16 +7,17 @@ mod source;
 use std::ops::ControlFlow;
 use std::time::{Duration, Instant};
 
+use camino::Utf8Path;
 use tree_sitter::{ParseOptions, ParseState, Parser, Tree};
 
 pub use language::{LanguageRegistry, LanguageSpec, RegistryError};
 pub use source::{MAX_DECLARATIONS_PER_FILE, SymbolTable};
 
-use crate::marker::{LexError, Lexed, MalformedMarker, Marker, RelPath, lex};
+use crate::marker::{LexError, Lexed, MalformedMarker, Marker, lex};
 use crate::span::{ByteSpan, LineIndex, PositionOverflow};
 
 /// What kind of text a byte range holds. Only these regions are lexed for markers.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, PartialOrd, Ord)]
 pub enum RegionKind {
     /// Markdown text outside code blocks and code spans.
     Prose,
@@ -100,7 +101,7 @@ impl<'r> Container<'r> {
     /// `None` means the file is not scanned at all: opting in applies to files as well as
     /// to markers.
     pub fn for_path(
-        path: &RelPath,
+        path: &Utf8Path,
         rules: &ContainerRules,
         registry: &'r LanguageRegistry,
     ) -> Option<Self> {
@@ -266,8 +267,7 @@ mod tests {
     fn container_selection_is_by_lowercased_extension_and_opt_in() {
         let registry = LanguageRegistry::new().unwrap();
         let rules = ContainerRules::default();
-        let select =
-            |raw: &str| Container::for_path(&RelPath::parse(raw).unwrap(), &rules, &registry);
+        let select = |raw: &str| Container::for_path(Utf8Path::new(raw), &rules, &registry);
         assert_eq!(select("README.MD"), Some(Container::Markdown));
         assert_eq!(select("notes.txt"), Some(Container::Plaintext));
         assert!(
