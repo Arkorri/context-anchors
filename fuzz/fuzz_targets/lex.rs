@@ -11,12 +11,17 @@ fuzz_target!(|data: &[u8]| {
         for marker in &lexed.markers {
             assert!(text.get(marker.span.start..marker.span.end).is_some());
             assert!(text.get(marker.body_span.start..marker.body_span.end).is_some());
-            if let MarkerPayload::Ref {
-                alias: Some(declared),
-                ..
-            } = &marker.payload
-            {
-                assert!(text.get(declared.span.start..declared.span.end).is_some());
+            match &marker.payload {
+                MarkerPayload::Ref {
+                    alias: Some(declared),
+                    ..
+                } => assert!(text.get(declared.span.start..declared.span.end).is_some()),
+                MarkerPayload::NoRef { items } => {
+                    for item in items {
+                        assert_eq!(text.get(item.span.start..item.span.end), Some(item.entry.as_str()));
+                    }
+                }
+                MarkerPayload::Anchor { .. } | MarkerPayload::Ref { .. } | MarkerPayload::Use { .. } => {}
             }
         }
     }

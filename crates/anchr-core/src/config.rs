@@ -9,6 +9,7 @@ use globset::{GlobBuilder, GlobSet, GlobSetBuilder};
 use serde::Deserialize;
 use toml::Spanned;
 
+use crate::marker::NoRefEntry;
 use crate::root::{RootName, RootNameError};
 use crate::text::ContainerRules;
 
@@ -52,6 +53,26 @@ pub struct CheckConfig {
     pub unverified: UnverifiedPolicy,
 }
 
+/// What `coverage` leaves alone. Nothing here affects `check`.
+#[derive(Debug, Clone)]
+pub struct CoverageConfig {
+    /// Files still scanned and checked, but never asked for candidates.
+    pub exclude: GlobSet,
+    pub exclude_patterns: Vec<String>,
+    /// Strings that are never references anywhere in the root.
+    pub ignore: Vec<NoRefEntry>,
+}
+
+impl Default for CoverageConfig {
+    fn default() -> Self {
+        Self {
+            exclude: GlobSet::empty(),
+            exclude_patterns: Vec::new(),
+            ignore: Vec::new(),
+        }
+    }
+}
+
 #[derive(Debug, Clone, Default)]
 pub struct Config {
     pub root_name: Option<RootName>,
@@ -60,6 +81,7 @@ pub struct Config {
     pub scan: ScanConfig,
     pub containers: ContainerRules,
     pub check: CheckConfig,
+    pub coverage: CoverageConfig,
 }
 
 #[derive(Debug, thiserror::Error)]
@@ -114,6 +136,7 @@ pub fn discover(start: &Utf8Path) -> Result<Discovered, ConfigError> {
     })
 }
 
+// @noref[root_dir/anchr.toml]
 /// Reads `root_dir/anchr.toml` if present; otherwise the defaults.
 pub fn load_for_root(root_dir: &Utf8Path) -> Result<(Config, Option<Utf8PathBuf>), ConfigError> {
     let path = root_dir.join(CONFIG_FILE_NAME);
@@ -152,6 +175,7 @@ struct RawConfig {
     scan: RawScanSection,
     containers: RawContainersSection,
     check: RawCheckSection,
+    coverage: RawCoverageSection,
 }
 
 #[derive(Debug, Default, Deserialize)]
@@ -180,6 +204,13 @@ struct RawContainersSection {
 #[serde(deny_unknown_fields, rename_all = "kebab-case", default)]
 struct RawCheckSection {
     unverified: UnverifiedPolicy,
+}
+
+#[derive(Debug, Default, Deserialize)]
+#[serde(deny_unknown_fields, rename_all = "kebab-case", default)]
+struct RawCoverageSection {
+    exclude: Vec<Spanned<String>>,
+    ignore: Vec<Spanned<String>>,
 }
 
 struct Validator<'a> {
@@ -253,6 +284,13 @@ impl Validator<'_> {
             },
         };
 
+        let coverage_exclude_patterns = self.strings("coverage.exclude", &raw.coverage.exclude)?;
+        let coverage = CoverageConfig {
+            exclude: self.glob_set("coverage.exclude", &coverage_exclude_patterns)?,
+            exclude_patterns: coverage_exclude_patterns,
+            ignore: self.noref_entries("coverage.ignore", &raw.coverage.ignore)?,
+        };
+
         Ok(Config {
             root_name,
             external_roots,
@@ -267,6 +305,7 @@ impl Validator<'_> {
             check: CheckConfig {
                 unverified: raw.check.unverified,
             },
+            coverage,
         })
     }
 
@@ -307,6 +346,27 @@ impl Validator<'_> {
                 }
             })
             .collect()
+    }
+
+    fn noref_entries(
+        &self,
+        field: &str,
+        values: &[Spanned<String>],
+    ) -> Result<Vec<NoRefEntry>, ConfigError> {
+        let mut entries: Vec<NoRefEntry> = Vec::with_capacity(values.len());
+        for value in values {
+            let entry = NoRefEntry::parse(value.get_ref())
+                .map_err(|reason| self.invalid(field, reason.to_string(), Some(value.span())))?;
+            if entries.contains(&entry) {
+                return Err(self.invalid(
+                    field,
+                    format!("duplicate entry `{entry}`"),
+                    Some(value.span()),
+                ));
+            }
+            entries.push(entry);
+        }
+        Ok(entries)
     }
 
     fn glob_set(&self, field: &str, patterns: &[String]) -> Result<GlobSet, ConfigError> {
@@ -399,6 +459,9 @@ mod tests {
         assert_eq!(config.scan.parse_budget, DEFAULT_PARSE_BUDGET);
         assert_eq!(config.containers, ContainerRules::default());
         assert_eq!(config.check.unverified, UnverifiedPolicy::Report);
+        assert!(config.coverage.exclude_patterns.is_empty());
+        assert!(config.coverage.ignore.is_empty());
+        assert!(!config.coverage.exclude.is_match("anything.md"));
     }
 
     #[test]
@@ -425,6 +488,10 @@ mod tests {
 
             [check]
             unverified = "error"
+
+            [coverage]
+            exclude = ["docs/research/**"]
+            ignore = ["CLAUDE.md", "src/legacy/"]
             "#,
         )
         .unwrap();
@@ -448,6 +515,18 @@ mod tests {
         assert_eq!(config.containers.markdown_extensions, vec!["md", "mdx"]);
         assert_eq!(config.containers.plaintext_extensions, vec!["txt", "text"]);
         assert_eq!(config.check.unverified, UnverifiedPolicy::Error);
+        assert_eq!(config.coverage.exclude_patterns, vec!["docs/research/**"]);
+        assert!(config.coverage.exclude.is_match("docs/research/a/b.md"));
+        assert!(!config.coverage.exclude.is_match("docs/design/a.md"));
+        assert_eq!(
+            config
+                .coverage
+                .ignore
+                .iter()
+                .map(NoRefEntry::as_str)
+                .collect::<Vec<_>>(),
+            vec!["CLAUDE.md", "src/legacy/"]
+        );
     }
 
     #[test]
@@ -477,6 +556,11 @@ mod tests {
                 "[containers]\nmarkdown = [\".md\"]\n",
                 "containers.markdown",
             ),
+            ("[coverage]\nexclude = [\"\"]\n", "coverage.exclude"),
+            ("[coverage]\nignore = [\"\"]\n", "coverage.ignore"),
+            ("[coverage]\nignore = [\"a b\"]\n", "coverage.ignore"),
+            ("[coverage]\nignore = [\"a,b\"]\n", "coverage.ignore"),
+            ("[coverage]\nignore = [\"x\", \"x\"]\n", "coverage.ignore"),
         ];
         for (text, expected_field) in cases {
             match parse(text) {
@@ -493,6 +577,8 @@ mod tests {
     fn an_invalid_glob_is_rejected() {
         let error = parse("[scan]\ninclude = [\"docs/[\"]\n").unwrap_err();
         assert!(matches!(error, ConfigError::Invalid { field, .. } if field == "scan.include"));
+        let error = parse("[coverage]\nexclude = [\"docs/[\"]\n").unwrap_err();
+        assert!(matches!(error, ConfigError::Invalid { field, .. } if field == "coverage.exclude"));
     }
 
     #[test]

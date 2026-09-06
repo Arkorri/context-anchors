@@ -10,5 +10,7 @@ fuzz_target!(|data: &[u8]| {
         let _ = anchr_core::marker::SymbolName::parse(text);
         let _ = anchr_core::root::RootName::parse(text);
         let _ = anchr_core::marker::Alias::parse(text);
+        let _ = anchr_core::marker::NoRefEntry::parse(text);
+        let _ = anchr_core::marker::parse_noref_body(text);
     }
 });

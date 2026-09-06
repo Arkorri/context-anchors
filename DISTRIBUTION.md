@@ -68,7 +68,7 @@ Only the binary is a packaging problem in the conventional sense.
 [cargo-dist](https://github.com/axodotdev/cargo-dist) is the spine. Verified healthy — v0.32.0
 released 2026-05-21, actively maintained.
 
-From one config block in `Cargo.toml` plus a git tag, it generates:
+From one config block in @ref[Cargo.toml] plus a git tag, it generates:
 
 - Cross-compiled binaries for every target
 - A GitHub Actions release workflow

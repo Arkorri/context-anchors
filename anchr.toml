@@ -6,3 +6,13 @@ name = "context-anchors"
 [scan]
 # Generated build output and the per-crate test snapshots are not documentation.
 exclude = ["target/**", "**/snapshots/**"]
+
+[coverage]
+# Archived research: kept valid, never asked for more annotation.
+exclude = ["docs/research/**"]
+# Files that live in a user's repository, and the product's own name, are never references here.
+ignore = [
+  "CLAUDE.md", "AGENTS.md", "GEMINI.md", ".cursor/rules", "package.json", "build.rs",
+  "CHANGELOG.md", ".claude-plugin/marketplace.json", "dist-manifest.json", ".claude/settings.json",
+  "anchr", "anchr.toml",
+]

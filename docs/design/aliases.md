@@ -10,6 +10,7 @@
 @ref[#cli/backrefs as Backrefs]
 @ref[#cli/annotate as Annotate]
 @ref[#cli/init as Init]
+@noref[src/as/x.rs, docs/x.md, alias_uses, Alias]
 
 ## 1. Problem
 
@@ -300,9 +301,9 @@ file's aliases. No new filesystem reads. The lexer stays a single linear-time re
 - **Root-level alias table** (`[aliases]` in `anchr.toml`). Removes per-file redeclaration but makes
   a use depend on state outside the file, the property file scope buys. Revisit if redeclaration
   measurably hurts.
-- **A "not a reference" marker** for acknowledging coverage candidates. With aliases in place the
-  remaining candidates are heuristic noise, better handled by a config ignore list and a better
-  tokenizer.
+- **A "not a reference" marker** for acknowledging coverage candidates. Shipped since, as `@noref`
+  plus `[coverage] ignore`, once the annotated repository showed that most remaining candidates
+  were correctly classified and still not references: @ref[docs/design/ignores.md].
 - **Smarter @[Annotate].** Propose a declaration plus uses for repeated identifiers instead of N
   qualified references. Needs aliases to exist first.
 - **CLI alias rename.** `anchr rename` stays anchor-only; file-local rename is a language-server

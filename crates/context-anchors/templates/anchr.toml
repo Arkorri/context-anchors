@@ -22,3 +22,7 @@
 
 # [check]
 # unverified = "report"        # "error" makes every unverified finding fail the check
+
+# [coverage]
+# exclude = []                 # globs; still checked, but coverage proposes nothing in them
+# ignore = []                  # strings that are never references anywhere, e.g. ["CLAUDE.md"]

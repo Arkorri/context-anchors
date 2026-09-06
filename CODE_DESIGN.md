@@ -17,6 +17,7 @@
 @ref[#cli/backrefs as Backrefs]
 @ref[#cli/rename as Rename]
 @ref[#cli/init as Init]
+@noref[foo.ts, report.json]
 
 **Companion to:** @ref[DESIGN.md] (what the tool is) and @ref[DISTRIBUTION.md] (how it ships); this
 document covers how the code is shaped. Where it deviates from those two, §12 says so.
@@ -154,6 +155,8 @@ and making paths/symbols cross-root capable costs nothing and keeps one rule (§
 ref         := target [ws "as" ws alias]          alias clause declares a file-local name
 use         := "@[" alias "]"                     a use of a declared alias
 alias       := [A-Za-z_] [A-Za-z0-9_]*            max 64 bytes
+noref       := "@noref[" entry ("," ws* entry)* "]"   strings that are not references in this file
+entry       := 1..=256 bytes, no whitespace, none of  , [ ] @ `   (plain text, never a target)
 target      := [root ":"] body
 body        := "#" anchor_id                      -> Anchor
              | rel_path "#" symbol_name           -> Symbol
@@ -284,11 +287,13 @@ well as markers).
 The marker language is regular. One compiled `regex::Regex` in a `LazyLock`:
 
 ```
-@(anchor|ref|)\[(?:([^\[\]\n]*)\]|)
+@(anchor|ref|noref|)\[(?:([^\[\]\n]*)\]|)
 ```
 
 An empty kind is an alias use, `@[X]`; brackets keep it the same shape as every other marker, so
-`@param` in a comment is never one. The empty body alternative catches an opener with no closer
+`@param` in a comment is never one. `@noref` bodies are comma-separated lists parsed by
+@ref[crates/anchr-core/src/marker/noref.rs#parse_noref_body]; each entry keeps its own span so
+@[Coverage] can point at an unused one. The empty body alternative catches an opener with no closer
 on the same line → `Unclosed`. A post-filter
 rejects matches whose preceding *character* (`source[..start].chars().next_back()`, not the
 preceding byte, so `é@ref[x]` and `e@ref[x]` behave the same) is alphanumeric or `_`, so
@@ -521,17 +526,21 @@ plaintext = ["txt"]
 
 [check]
 unverified = "report"       # or "error" (same as --strict)
+
+[coverage]
+exclude = []                # globs; files stay checked but coverage proposes nothing in them
+ignore = []                 # strings that are never references anywhere in this root
 ```
 
 The current root needs a @ref[crates/anchr-core/src/root.rs#RootName] for every
 @[Site]; `[root] name` provides it, defaulting to the directory's
 basename (validated; an invalid basename is a config error that names the fix).
 
-External roots load *their own* `anchr.toml` for `[scan]`/`[containers]` if one exists;
-otherwise defaults. Their `[roots]` and `[check]` tables are ignored, and they are scanned
+External roots load *their own* `anchr.toml` for `[scan]`/`[containers]` if one exists; otherwise
+defaults. Their `[roots]`, `[check]`, and `[coverage]` tables are ignored, and they are scanned
 anchors-only (§3.3). Root cycles are therefore impossible. Config is parsed defensively (schema,
-bounds, spans), but the *roots it declares are trusted*: a config pointing a root at `~` walks
-`~`. That is the user's choice, the same as running `rg` there.
+bounds, spans), but the *roots it declares are trusted*: a config pointing a root at `~` walks `~`.
+That is the user's choice, the same as running `rg` there.
 
 ---
 
@@ -817,6 +826,7 @@ them).
     every file touched).
 11. `anchr coverage` / `anchr annotate`: heuristic scanner over the same text regions, reporting
     reference-shaped strings that are not annotated; never errors, never writes on its own.
+    `@noref` and `[coverage] ignore` retire the candidates an author has judged (§12a item 14).
 
 **Milestone 3 — review ledger and ecosystem** (design pass required before code)
 12. `anchr review` / `anchr accept` signature ledger; exported vs. internal anchors; MCP adapter
@@ -909,6 +919,13 @@ Refinements the code made to the design above, recorded so the document stays th
     @[Backrefs], and are counted separately; undeclared and duplicate aliases are errors keyed by
     file. Grammar, semantics, and reasons are in @ref[docs/design/aliases.md]. This document's own
     index block at the top is the first user.
+14. **@[Coverage] ignores.** Once the repository was annotated, most remaining coverage candidates
+    were classified correctly and still were not references: example paths, files that exist in
+    a user's repository, the product name. `@noref[a, b/]` declares them per file and
+    `[coverage] ignore` / `exclude` per root; both share one exact matcher
+    (@ref[crates/anchr-core/src/noref.rs#NoRefSet]) and every entry that matches nothing is
+    reported, the way an unused alias is. @[Check] lexes the marker and otherwise never sees it.
+    Design in @ref[docs/design/ignores.md].
 
 ## 13. Research appendix
 

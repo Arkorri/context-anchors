@@ -288,7 +288,8 @@ impl Server {
                 } if marker.span == span => Some(&declared.alias),
                 MarkerPayload::Anchor { .. }
                 | MarkerPayload::Ref { .. }
-                | MarkerPayload::Use { .. } => None,
+                | MarkerPayload::Use { .. }
+                | MarkerPayload::NoRef { .. } => None,
             })?;
         let related: Vec<DiagnosticRelatedInformation> = record
             .markers
@@ -338,7 +339,9 @@ impl Server {
                 }
                 locations
             }
-            MarkerPayload::Anchor { .. } => return Ok(serde_json::Value::Null),
+            MarkerPayload::Anchor { .. } | MarkerPayload::NoRef { .. } => {
+                return Ok(serde_json::Value::Null);
+            }
         };
         serde_json::to_value(GotoDefinitionResponse::Array(locations))
             .map_err(|error| HandlerError::Internal(error.to_string()))
@@ -430,6 +433,7 @@ impl Server {
                 };
                 binding.target.clone()
             }
+            MarkerPayload::NoRef { .. } => return Ok(serde_json::Value::Null),
         };
         let mut locations: Vec<Location> = index
             .backrefs(&target)
@@ -481,7 +485,7 @@ impl Server {
             } if root.as_ref().is_none_or(|r| *r == current_root.name) => {
                 self.plan_anchor(id, &params.new_name)?
             }
-            MarkerPayload::Ref { .. } => {
+            MarkerPayload::Ref { .. } | MarkerPayload::NoRef { .. } => {
                 return Err(HandlerError::InvalidParams(
                     "only anchors in the current root and aliases can be renamed".to_owned(),
                 ));
@@ -577,7 +581,9 @@ impl Server {
                     convert::range(line_index, marker.span, self.encoding)?,
                     convert::range(line_index, declared.span, self.encoding)?,
                 )),
-                MarkerPayload::Ref { .. } | MarkerPayload::Use { .. } => None,
+                MarkerPayload::Ref { .. }
+                | MarkerPayload::Use { .. }
+                | MarkerPayload::NoRef { .. } => None,
             })
             .collect();
         serde_json::to_value(DocumentSymbolResponse::Nested(symbols))

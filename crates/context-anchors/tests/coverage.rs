@@ -134,6 +134,89 @@ fn alias_words_are_proposed_and_unused_aliases_are_listed() {
 }
 
 #[test]
+fn ignores_suppress_candidates_and_unused_entries_are_reported() {
+    let fixture = Fixture::new(&[
+        (
+            "anchr.toml",
+            "[coverage]\nexclude = [\"archive/**\"]\nignore = [\"CLAUDE.md\", \"never.md\"]\n",
+        ),
+        (
+            "docs/a.md",
+            "@noref[foo.ts, spare.md]\nSee `docs/guide.md`, foo.ts, and CLAUDE.md. @ref[docs/guide.md]\n",
+        ),
+        ("archive/old.md", "docs/guide.md\n"),
+        ("docs/guide.md", "# Guide\n"),
+    ]);
+    fixture
+        .anchr()
+        .args(["coverage", "--color", "never"])
+        .assert()
+        .code(0)
+        .stdout(predicate::str::contains(
+            "docs/a.md:2:5: `docs/guide.md` — could be @ref[docs/guide.md]",
+        ))
+        .stdout(predicate::str::contains(
+            "docs/a.md:1:16: spare.md — ignored but never matched",
+        ))
+        .stdout(predicate::str::contains(
+            "anchr.toml: never.md — ignored but never matched",
+        ))
+        .stdout(predicate::str::contains("archive/old.md").not())
+        .stdout(predicate::str::contains(
+            "1 of 2 reference-shaped strings are annotated; 1 could be, 0 do not resolve, 0 are ambiguous; 2 strings ignored; 2 ignore entries never matched",
+        ));
+
+    let output = fixture
+        .anchr()
+        .args(["coverage", "--format", "json"])
+        .output()
+        .unwrap();
+    let json: serde_json::Value = serde_json::from_slice(&output.stdout).unwrap();
+    assert_eq!(json["summary"]["ignored"], 2);
+    assert_eq!(json["summary"]["unused_ignores"], 2);
+    assert_eq!(
+        json["unused_config_ignores"],
+        serde_json::json!(["never.md"])
+    );
+    let kinds: Vec<&str> = json["candidates"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .map(|c| c["kind"].as_str().unwrap())
+        .collect();
+    assert_eq!(kinds, vec!["proposal", "unused-ignore"]);
+
+    fixture
+        .anchr()
+        .args(["annotate", "--write", "--color", "never"])
+        .assert()
+        .code(0)
+        .stdout(predicate::str::contains("annotated 1 reference"));
+    assert_eq!(
+        fixture.read("docs/a.md"),
+        "@noref[foo.ts, spare.md]\nSee @ref[docs/guide.md], foo.ts, and CLAUDE.md. @ref[docs/guide.md]\n"
+    );
+    fixture
+        .anchr()
+        .args(["check", "--color", "never"])
+        .assert()
+        .code(0)
+        .stdout(predicate::str::contains("checked 2 references"));
+}
+
+#[test]
+fn a_malformed_noref_list_is_a_check_error() {
+    let fixture = Fixture::new(&[("docs/a.md", "@noref[a,]\n")]);
+    fixture
+        .anchr()
+        .args(["check", "--color", "never"])
+        .assert()
+        .code(1)
+        .stdout(predicate::str::contains("@noref"))
+        .stdout(predicate::str::contains("invalid ignore list `a,`"));
+}
+
+#[test]
 fn annotate_only_writes_with_the_flag_and_the_result_passes_check() {
     let fixture = fixture();
     fixture

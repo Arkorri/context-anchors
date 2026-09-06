@@ -67,6 +67,7 @@ and `@[...]`, find-references and rename on anchors and aliases, and anchors and
 declarations as document symbols.
 
 Targets a reference can name:
+<!-- @noref[src/file.ts] -->
 
 | Form | Meaning |
 |---|---|
@@ -81,9 +82,13 @@ A file that mentions one target many times declares it once and uses a short loc
 ```markdown
 <!-- refs -->
 @ref[src/file.ts#Name as Name]
+@noref[src/legacy/, example.ts]
 
 @[Name] is checked at every mention; renaming it in code is one edit per file.
 ```
+
+`@noref` lists strings that look like references in this file and are not, such as example paths;
+`anchr coverage` stops proposing them and reports any entry that no longer matches anything.
 
 Markers are recognised in Markdown prose (outside code fences and inline code), in source code
 comments (outside backtick spans), and in `.txt` files. Configuration lives in @ref[anchr.toml];
@@ -96,6 +101,8 @@ comments (outside backtick spans), and in `.txt` files. Configuration lives in @
 - @ref[CODE_DESIGN.md] — how the code is shaped, and every place it deviates from the two above
 - @ref[docs/design/aliases.md] — file-scoped alias imports, so a reference is declared once per
   file and used by a short local name
+- @ref[docs/design/ignores.md] — `@noref` and `[coverage] ignore`, for strings that look like
+  references and are not
 - `docs/research/` — the crate survey, security checklist digest, and design review behind it
 
 ## License

@@ -193,6 +193,7 @@ fn the_server_publishes_diagnostics_and_answers_navigation_requests() {
         json!({ "line": 0, "character": 27 })
     );
 
+    // @noref[guide.md, other.md]
     // Go to definition from the reference in other.md lands on the anchor in guide.md.
     let definition = client.request(
         "textDocument/definition",
