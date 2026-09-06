@@ -146,7 +146,11 @@ pub fn run_check(discovered: Discovered, options: &CheckOptions) -> Result<Repor
         }
     }
 
-    Ok(builder.finish(policy, summary))
+    let root_dirs = root_set
+        .present()
+        .map(|root| (root.name.clone(), root.dir.clone()))
+        .collect();
+    Ok(builder.finish(policy, summary, root_dirs))
 }
 
 fn record_scan_problems(builder: &mut ReportBuilder, root: &RootName, output: &ScanOutput) {

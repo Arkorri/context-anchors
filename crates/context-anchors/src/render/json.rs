@@ -1,0 +1,199 @@
+//! The machine-readable contract. Its own DTOs, decoupled from the core types, versioned by
+//! `schema`. Consumers are agents and CI, so codes are stable strings and every location
+//! carries both one-based line/column and byte offsets.
+
+use std::io::Write;
+
+use anchr_core::diagnostic::{Diagnostic, DiagnosticKind, Locations, Report, Severity};
+use anchr_core::resolve::{Unresolved, Unverified};
+use anchr_core::text::RegionKind;
+use serde::Serialize;
+
+pub const SCHEMA_VERSION: u32 = 1;
+
+pub fn write(out: &mut impl Write, report: &Report) -> anyhow::Result<()> {
+    let json = JsonReport::from(report);
+    serde_json::to_writer_pretty(&mut *out, &json)?;
+    writeln!(out)?;
+    Ok(())
+}
+
+#[derive(Serialize)]
+struct JsonReport<'a> {
+    schema: u32,
+    summary: JsonSummary,
+    roots: Vec<JsonRoot<'a>>,
+    diagnostics: Vec<JsonDiagnostic<'a>>,
+}
+
+#[derive(Serialize)]
+struct JsonSummary {
+    roots_scanned: usize,
+    files_scanned: usize,
+    anchors: usize,
+    refs_checked: usize,
+    refs_resolved: usize,
+    errors: usize,
+    unverified: usize,
+    strict: bool,
+}
+
+#[derive(Serialize)]
+struct JsonRoot<'a> {
+    name: &'a str,
+    dir: &'a str,
+}
+
+#[derive(Serialize)]
+struct JsonDiagnostic<'a> {
+    code: &'static str,
+    severity: &'static str,
+    message: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    suggestion: Option<&'a str>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    hint: Option<String>,
+    locations: Vec<JsonLocation<'a>>,
+}
+
+#[derive(Serialize)]
+struct JsonLocation<'a> {
+    root: &'a str,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    path: Option<&'a str>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    line: Option<u32>,
+    /// One-based byte column.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    col: Option<u32>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    byte_start: Option<usize>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    byte_end: Option<usize>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    region: Option<&'static str>,
+}
+
+impl<'a> From<&'a Report> for JsonReport<'a> {
+    fn from(report: &'a Report) -> Self {
+        Self {
+            schema: SCHEMA_VERSION,
+            summary: JsonSummary {
+                roots_scanned: report.summary.roots_scanned,
+                files_scanned: report.summary.files_scanned,
+                anchors: report.summary.anchors,
+                refs_checked: report.summary.refs_checked,
+                refs_resolved: report.summary.refs_resolved,
+                errors: report.summary.errors,
+                unverified: report.summary.unverified,
+                strict: report.policy == anchr_core::config::UnverifiedPolicy::Error,
+            },
+            roots: report
+                .root_dirs
+                .iter()
+                .map(|(name, dir)| JsonRoot {
+                    name: name.as_str(),
+                    dir: dir.as_str(),
+                })
+                .collect(),
+            diagnostics: report
+                .diagnostics
+                .iter()
+                .map(JsonDiagnostic::from)
+                .collect(),
+        }
+    }
+}
+
+impl<'a> From<&'a Diagnostic> for JsonDiagnostic<'a> {
+    fn from(diagnostic: &'a Diagnostic) -> Self {
+        let locations = match &diagnostic.locations {
+            Locations::Sites(sites) => sites
+                .iter()
+                .map(|located| JsonLocation {
+                    root: located.site.root.as_str(),
+                    path: Some(located.site.path.as_str()),
+                    line: Some(located.line_col.line),
+                    col: Some(located.line_col.col),
+                    byte_start: Some(located.site.span.start),
+                    byte_end: Some(located.site.span.end),
+                    region: Some(region_name(located.site.region)),
+                })
+                .collect(),
+            Locations::Files(files) => files
+                .iter()
+                .map(|file| JsonLocation {
+                    root: file.root.as_str(),
+                    path: Some(file.path.as_str()),
+                    line: None,
+                    col: None,
+                    byte_start: None,
+                    byte_end: None,
+                    region: None,
+                })
+                .collect(),
+            Locations::Roots(roots) => roots
+                .iter()
+                .map(|root| JsonLocation {
+                    root: root.as_str(),
+                    path: None,
+                    line: None,
+                    col: None,
+                    byte_start: None,
+                    byte_end: None,
+                    region: None,
+                })
+                .collect(),
+        };
+        Self {
+            code: code(&diagnostic.kind),
+            severity: match diagnostic.severity {
+                Severity::Error => "error",
+                Severity::Unverified => "unverified",
+            },
+            message: diagnostic.kind.to_string(),
+            suggestion: diagnostic.suggestion.as_deref(),
+            hint: diagnostic.kind.hint(),
+            locations,
+        }
+    }
+}
+
+fn region_name(region: RegionKind) -> &'static str {
+    match region {
+        RegionKind::Prose => "prose",
+        RegionKind::Comment => "comment",
+        RegionKind::Whole => "plaintext",
+    }
+}
+
+/// Stable identifiers for consumers; adding a kind adds a code, never renames one.
+fn code(kind: &DiagnosticKind) -> &'static str {
+    match kind {
+        DiagnosticKind::Unresolved(unresolved) => match unresolved {
+            Unresolved::PathMissing { .. } => "path-missing",
+            Unresolved::PathNotDirectory { .. } => "path-not-directory",
+            Unresolved::PathNotFile { .. } => "path-not-file",
+            Unresolved::PathEscapesRoot { .. } => "path-escapes-root",
+            Unresolved::SymbolMissing { .. } => "symbol-missing",
+            Unresolved::AnchorMissing { .. } => "anchor-missing",
+            Unresolved::RootUndeclared { .. } => "root-undeclared",
+        },
+        DiagnosticKind::DuplicateAnchor { .. } => "duplicate-anchor",
+        DiagnosticKind::Malformed { .. } => "malformed-marker",
+        DiagnosticKind::Unverified(unverified) => match unverified {
+            Unverified::RootAbsent { .. } => "root-absent",
+            Unverified::NoGrammar { .. } => "no-grammar",
+            Unverified::ParseErrors { .. } => "parse-errors",
+            Unverified::ParseTimeout { .. } => "parse-timeout",
+            Unverified::SymbolTableTruncated { .. } => "symbol-table-truncated",
+            Unverified::TargetTooLarge { .. } => "target-too-large",
+            Unverified::TargetNotUtf8 { .. } => "target-not-utf8",
+            Unverified::TargetUnreadable { .. } => "target-unreadable",
+            Unverified::AnalyzeFailed { .. } => "analyze-failed",
+        },
+        DiagnosticKind::ExternalDuplicate { .. } => "external-duplicate",
+        DiagnosticKind::FileSkipped { .. } => "file-skipped",
+        DiagnosticKind::WalkProblem { .. } => "walk-problem",
+    }
+}
