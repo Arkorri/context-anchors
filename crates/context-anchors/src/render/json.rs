@@ -75,6 +75,7 @@ struct JsonSummary {
     anchors: usize,
     refs_checked: usize,
     refs_resolved: usize,
+    alias_uses: usize,
     errors: usize,
     unverified: usize,
     strict: bool,
@@ -95,6 +96,8 @@ struct JsonDiagnostic<'a> {
     suggestion: Option<&'a str>,
     #[serde(skip_serializing_if = "Option::is_none")]
     hint: Option<String>,
+    #[serde(skip_serializing_if = "<[String]>::is_empty")]
+    notes: &'a [String],
     locations: Vec<JsonLocation<'a>>,
 }
 
@@ -126,6 +129,7 @@ impl<'a> From<&'a Report> for JsonReport<'a> {
                 anchors: report.summary.anchors,
                 refs_checked: report.summary.refs_checked,
                 refs_resolved: report.summary.refs_resolved,
+                alias_uses: report.summary.alias_uses,
                 errors: report.summary.errors,
                 unverified: report.summary.unverified,
                 strict: report.policy == anchr_core::config::UnverifiedPolicy::Error,
@@ -185,6 +189,7 @@ impl<'a> From<&'a Diagnostic> for JsonDiagnostic<'a> {
             message: diagnostic.kind.to_string(),
             suggestion: diagnostic.suggestion.as_deref(),
             hint: diagnostic.kind.hint(),
+            notes: &diagnostic.notes,
             locations,
         }
     }
@@ -308,6 +313,8 @@ pub fn code(kind: &DiagnosticKind) -> &'static str {
             Unresolved::RootUndeclared { .. } => "root-undeclared",
         },
         DiagnosticKind::DuplicateAnchor { .. } => "duplicate-anchor",
+        DiagnosticKind::AliasUndeclared { .. } => "alias-undeclared",
+        DiagnosticKind::AliasDuplicate { .. } => "alias-duplicate",
         DiagnosticKind::Malformed { .. } => "malformed-marker",
         DiagnosticKind::Unverified(unverified) => match unverified {
             Unverified::RootAbsent { .. } => "root-absent",

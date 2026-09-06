@@ -119,9 +119,12 @@ fn json_output_has_a_stable_schema() {
         ("anchr.toml", "[roots]\nclaude = \"../not-there\"\n"),
         (
             "docs/a.md",
-            "@anchor[dup] @ref[#missing] @ref[claude:#x] @ref[\n",
+            "@anchor[dup] @ref[#missing] @ref[claude:#x] @ref[ @[Nope]\n",
         ),
-        ("docs/b.md", "@anchor[dup] @ref[docs/a.md#Foo::bar]\n"),
+        (
+            "docs/b.md",
+            "@anchor[dup] @ref[docs/a.md#Foo::bar] @ref[#dup as D] @ref[#dup as D] @[D]\n",
+        ),
         ("src/thing.ex", "defmodule X do end\n"),
         ("src/y.rs", "// @ref[src/thing.ex#anything]\n"),
     ]);

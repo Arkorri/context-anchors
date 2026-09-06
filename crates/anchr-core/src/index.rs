@@ -2,8 +2,9 @@
 //! finds the same thing.
 
 use std::collections::HashMap;
+use std::collections::hash_map::Entry;
 
-use crate::marker::{AnchorId, MalformedMarker, Marker, MarkerPayload, RefTarget};
+use crate::marker::{Alias, AnchorId, MalformedMarker, Marker, MarkerPayload, RefTarget};
 use crate::root::{FilePath, RootName};
 use crate::scan::ScannedFile;
 use crate::span::{ByteSpan, LineIndex};
@@ -23,6 +24,72 @@ pub struct FileRecord {
     pub markers: Vec<Marker>,
     pub malformed: Vec<MalformedMarker>,
     pub line_index: LineIndex,
+    pub aliases: AliasTable,
+}
+
+/// The aliases one file declares, built from that file's markers alone. The first declaration
+/// of a name wins the binding; every later one is a duplicate.
+#[derive(Debug, Clone, Default)]
+pub struct AliasTable {
+    bindings: HashMap<Alias, AliasBinding>,
+    duplicates: HashMap<Alias, Vec<ByteSpan>>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct AliasBinding {
+    pub target: RefTarget,
+    /// The whole declaring marker.
+    pub declaration: ByteSpan,
+    /// The alias token inside it, which an alias rename rewrites.
+    pub alias_span: ByteSpan,
+}
+
+impl AliasTable {
+    fn from_markers(markers: &[Marker]) -> Self {
+        let mut table = Self::default();
+        for marker in markers {
+            let MarkerPayload::Ref {
+                target,
+                alias: Some(declared),
+                ..
+            } = &marker.payload
+            else {
+                continue;
+            };
+            match table.bindings.entry(declared.alias.clone()) {
+                Entry::Vacant(slot) => {
+                    slot.insert(AliasBinding {
+                        target: target.clone(),
+                        declaration: marker.span,
+                        alias_span: declared.span,
+                    });
+                }
+                Entry::Occupied(first) => {
+                    table
+                        .duplicates
+                        .entry(declared.alias.clone())
+                        .or_insert_with(|| vec![first.get().declaration])
+                        .push(marker.span);
+                }
+            }
+        }
+        table
+    }
+
+    pub fn binding(&self, alias: &Alias) -> Option<&AliasBinding> {
+        self.bindings.get(alias)
+    }
+
+    pub fn aliases(&self) -> impl Iterator<Item = &Alias> {
+        self.bindings.keys()
+    }
+
+    /// Names declared more than once, with every declaring marker's span in file order.
+    pub fn duplicates(&self) -> impl Iterator<Item = (&Alias, &[ByteSpan])> {
+        self.duplicates
+            .iter()
+            .map(|(alias, spans)| (alias, spans.as_slice()))
+    }
 }
 
 /// A reference and where it was written.
@@ -31,6 +98,18 @@ pub struct RefSite<'a> {
     pub target: &'a RefTarget,
     /// Bytes a rename of the referenced anchor rewrites, when the target is an anchor.
     pub id_span: Option<ByteSpan>,
+    /// The alias this reference declares, when written `target as Alias`.
+    pub declares: Option<&'a Alias>,
+    /// Set when this site is an `@[Alias]` use reached through its declaration.
+    pub via: Option<&'a Alias>,
+    pub site: Site,
+}
+
+/// An `@[Alias]` and, when its file declares the alias, what it is bound to.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct AliasUse<'a> {
+    pub alias: &'a Alias,
+    pub binding: Option<&'a AliasBinding>,
     pub site: Site,
 }
 
@@ -91,12 +170,14 @@ impl Index {
                 ));
             }
         }
+        let aliases = AliasTable::from_markers(&scan.markers);
         self.files.insert(
             path,
             FileRecord {
                 markers: scan.markers,
                 malformed: scan.malformed,
                 line_index: scan.line_index,
+                aliases,
             },
         );
     }
@@ -145,10 +226,14 @@ impl Index {
                 .iter()
                 .filter_map(move |marker| match &marker.payload {
                     MarkerPayload::Ref {
-                        target, id_span, ..
+                        target,
+                        id_span,
+                        alias,
                     } => Some(RefSite {
                         target,
                         id_span: *id_span,
+                        declares: alias.as_ref().map(|declared| &declared.alias),
+                        via: None,
                         site: site(root, path, marker.span, marker.region),
                     }),
                     MarkerPayload::Anchor { .. } | MarkerPayload::Use { .. } => None,
@@ -183,12 +268,81 @@ impl Index {
         })
     }
 
+    /// Every `@[Alias]` in this root, bound when its file declares the alias.
+    pub fn alias_uses(&self) -> impl Iterator<Item = AliasUse<'_>> {
+        let root = &self.root;
+        self.files.iter().flat_map(move |(path, record)| {
+            record
+                .markers
+                .iter()
+                .filter_map(move |marker| match &marker.payload {
+                    MarkerPayload::Use { alias } => Some(AliasUse {
+                        alias,
+                        binding: record.aliases.binding(alias),
+                        site: site(root, path, marker.span, marker.region),
+                    }),
+                    MarkerPayload::Anchor { .. } | MarkerPayload::Ref { .. } => None,
+                })
+        })
+    }
+
+    pub fn alias_use_count(&self, path: &FilePath, alias: &Alias) -> usize {
+        self.files.get(path).map_or(0, |record| {
+            record
+                .markers
+                .iter()
+                .filter(|marker| {
+                    matches!(&marker.payload, MarkerPayload::Use { alias: used } if used == alias)
+                })
+                .count()
+        })
+    }
+
+    /// Aliases declared more than once in one file, with every declaration site in file order.
+    pub fn duplicate_aliases(&self) -> impl Iterator<Item = (&FilePath, &Alias, Vec<Site>)> {
+        let root = &self.root;
+        self.files.iter().flat_map(move |(path, record)| {
+            record.aliases.duplicates().map(move |(alias, spans)| {
+                let sites = spans
+                    .iter()
+                    .map(|span| site(root, path, *span, region_of(record, *span)))
+                    .collect();
+                (path, alias, sites)
+            })
+        })
+    }
+
+    /// Aliases a file declares and never uses.
+    pub fn unused_aliases(&self) -> impl Iterator<Item = (&FilePath, &Alias, &AliasBinding)> {
+        self.files.iter().flat_map(move |(path, record)| {
+            record
+                .aliases
+                .bindings
+                .iter()
+                .filter(move |(alias, _)| self.alias_use_count(path, alias) == 0)
+                .map(move |(alias, binding)| (path, alias, binding))
+        })
+    }
+
     /// Every reference to `target`, treating a bare target and one prefixed with this
-    /// root's own name as the same thing.
+    /// root's own name as the same thing. Alias uses count through their declaration.
     pub fn backrefs<'a>(&'a self, target: &RefTarget) -> impl Iterator<Item = RefSite<'a>> {
         let wanted = target.resolved_in(&self.root);
-        self.refs()
-            .filter(move |reference| reference.target.resolved_in(&self.root) == wanted)
+        let wanted_by_use = wanted.clone();
+        let direct = self
+            .refs()
+            .filter(move |reference| reference.target.resolved_in(&self.root) == wanted);
+        let through_aliases = self.alias_uses().filter_map(move |use_site| {
+            let binding = use_site.binding?;
+            (binding.target.resolved_in(&self.root) == wanted_by_use).then_some(RefSite {
+                target: &binding.target,
+                id_span: None,
+                declares: None,
+                via: Some(use_site.alias),
+                site: use_site.site,
+            })
+        });
+        direct.chain(through_aliases)
     }
 
     pub fn line_index(&self, path: &FilePath) -> Option<&LineIndex> {
@@ -210,6 +364,15 @@ impl Index {
     pub fn anchor_count(&self) -> usize {
         self.anchors_by_id.values().map(Vec::len).sum()
     }
+}
+
+/// The region of the marker at `span`; declarations always come from a lexed marker.
+fn region_of(record: &FileRecord, span: ByteSpan) -> RegionKind {
+    record
+        .markers
+        .iter()
+        .find(|marker| marker.span == span)
+        .map_or(RegionKind::Prose, |marker| marker.region)
 }
 
 fn site(root: &RootName, path: &FilePath, span: ByteSpan, region: RegionKind) -> Site {
@@ -244,6 +407,40 @@ mod tests {
 
     fn id(raw: &str) -> AnchorId {
         AnchorId::parse(raw).unwrap()
+    }
+
+    #[test]
+    fn aliases_bind_to_the_first_declaration_and_uses_join_backrefs() {
+        let index = index_with(&[(
+            "a.txt",
+            "@anchor[x] @ref[#x as X] @[X] @[X] @[Y] @ref[#x as X] @ref[#x as Unused]",
+        )]);
+        let record = index.file_record(&file("a.txt")).unwrap();
+        let x = Alias::parse("X").unwrap();
+        assert_eq!(record.aliases.binding(&x).unwrap().declaration.start, 11);
+        let duplicates: Vec<(&Alias, &[ByteSpan])> = record.aliases.duplicates().collect();
+        assert_eq!(duplicates.len(), 1);
+        assert_eq!(duplicates[0].1.len(), 2);
+
+        let uses: Vec<AliasUse<'_>> = index.alias_uses().collect();
+        assert_eq!(uses.len(), 3);
+        assert_eq!(
+            uses.iter()
+                .filter(|use_site| use_site.binding.is_some())
+                .count(),
+            2
+        );
+        assert_eq!(index.alias_use_count(&file("a.txt"), &x), 2);
+
+        let target = crate::marker::parse_target("#x").unwrap().target;
+        let backrefs: Vec<RefSite<'_>> = index.backrefs(&target).collect();
+        assert_eq!(backrefs.len(), 5);
+        assert_eq!(backrefs.iter().filter(|r| r.via.is_some()).count(), 2);
+        assert_eq!(backrefs.iter().filter(|r| r.declares.is_some()).count(), 3);
+
+        let unused: Vec<(&FilePath, &Alias, &AliasBinding)> = index.unused_aliases().collect();
+        assert_eq!(unused.len(), 1);
+        assert_eq!(unused[0].1.as_str(), "Unused");
     }
 
     fn index_with(files: &[(&str, &str)]) -> Index {

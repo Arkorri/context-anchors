@@ -76,7 +76,11 @@ pub fn plan_rename(
         id: old.clone(),
     };
     for reference in index.backrefs(&target) {
-        // Anchor targets always carry an id span; `None` cannot occur here.
+        // A use reaches the anchor through its declaration, which is rewritten as a direct ref.
+        if reference.via.is_some() {
+            continue;
+        }
+        // Direct anchor targets always carry an id span; `None` cannot occur here.
         let Some(id_span) = reference.id_span else {
             continue;
         };
@@ -154,6 +158,18 @@ mod tests {
 
     fn id(raw: &str) -> AnchorId {
         AnchorId::parse(raw).unwrap()
+    }
+
+    #[test]
+    fn an_aliased_declaration_is_rewritten_and_its_uses_are_left_alone() {
+        let fixture = Fixture::new(&[("a.md", "@anchor[old]\n@ref[#old as O] @[O] @[O]\n")]);
+        let plan = plan_rename(&fixture.workspace(), &id("old"), &id("new")).unwrap();
+        assert_eq!((plan.anchor_sites, plan.ref_sites), (1, 1));
+        apply_rename(&plan, &fixture.root_dir).unwrap();
+        assert_eq!(
+            fixture.read("a.md"),
+            "@anchor[new]\n@ref[#new as O] @[O] @[O]\n"
+        );
     }
 
     #[test]
