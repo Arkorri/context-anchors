@@ -25,6 +25,9 @@ pub enum RegionKind {
     Comment,
     /// An entire plaintext file.
     Whole,
+    /// A markdown code span, backticks included. Never lexed for markers; scanned by
+    /// `coverage` because that is where unannotated paths and symbol names tend to live.
+    InlineCode,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
@@ -172,6 +175,24 @@ impl<'r> FileAnalyzer<'r> {
             Container::Source(spec) => {
                 let tree = self.parse(spec, source)?;
                 Ok(source::comment_regions(spec, &tree, source))
+            }
+        }
+    }
+
+    /// The regions the coverage scanner looks at: prose plus inline code for markdown (links
+    /// excluded, so a proposal can never land inside a destination), whole comment nodes for
+    /// source, the whole file for plaintext.
+    pub fn coverage_regions(
+        &mut self,
+        container: Container<'r>,
+        source: &str,
+    ) -> Result<TextRegions, AnalyzeError> {
+        match container {
+            Container::Markdown => markdown::coverage_regions(source),
+            Container::Plaintext => Ok(TextRegions::whole(source.len(), RegionKind::Whole)),
+            Container::Source(spec) => {
+                let tree = self.parse(spec, source)?;
+                Ok(source::raw_comment_regions(spec, &tree, source))
             }
         }
     }

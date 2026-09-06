@@ -21,6 +21,10 @@ pub enum Command {
     Backrefs(BackrefsArgs),
     /// Rename an anchor id, rewriting its declaration and every reference to it.
     Rename(RenameArgs),
+    /// Report reference-shaped strings that carry no marker. Never fails.
+    Coverage(CoverageArgs),
+    /// Propose `@ref` markers for reference-shaped strings whose target resolves.
+    Annotate(AnnotateArgs),
     /// Write an `anchr.toml`, the marker guide for agents, and optional editor hooks.
     Init(InitArgs),
     /// Run a Language Server Protocol server over stdio.
@@ -80,6 +84,39 @@ pub struct RenameArgs {
     /// Print the planned edits without writing anything.
     #[arg(long)]
     pub dry_run: bool,
+
+    #[arg(long, value_enum, default_value_t = Color::Auto)]
+    pub color: Color,
+}
+
+#[derive(Debug, Args)]
+pub struct CoverageArgs {
+    /// Scan only these files for candidates.
+    pub paths: Vec<Utf8PathBuf>,
+
+    /// Directory to start root discovery from (default: the current directory).
+    #[arg(long, value_name = "DIR")]
+    pub root: Option<Utf8PathBuf>,
+
+    #[arg(long, value_enum, default_value_t = Format::Human)]
+    pub format: Format,
+
+    #[arg(long, value_enum, default_value_t = Color::Auto)]
+    pub color: Color,
+}
+
+#[derive(Debug, Args)]
+pub struct AnnotateArgs {
+    /// Propose markers only in these files.
+    pub paths: Vec<Utf8PathBuf>,
+
+    /// Directory to start root discovery from (default: the current directory).
+    #[arg(long, value_name = "DIR")]
+    pub root: Option<Utf8PathBuf>,
+
+    /// Apply the proposals. Without this flag nothing is written.
+    #[arg(long)]
+    pub write: bool,
 
     #[arg(long, value_enum, default_value_t = Color::Auto)]
     pub color: Color,
