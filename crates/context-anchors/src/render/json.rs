@@ -4,7 +4,9 @@
 
 use std::io::Write;
 
-use anchr_core::diagnostic::{Diagnostic, DiagnosticKind, Locations, Report, Severity};
+use anchr_core::diagnostic::{
+    Diagnostic, DiagnosticKind, LocatedSite, Locations, Report, Severity,
+};
 use anchr_core::resolve::{Unresolved, Unverified};
 use anchr_core::text::RegionKind;
 use serde::Serialize;
@@ -16,6 +18,43 @@ pub fn write(out: &mut impl Write, report: &Report) -> anyhow::Result<()> {
     serde_json::to_writer_pretty(&mut *out, &json)?;
     writeln!(out)?;
     Ok(())
+}
+
+/// The `backrefs` report: every site referring to one target.
+pub fn write_sites(
+    out: &mut impl Write,
+    target: &str,
+    sites: &[LocatedSite],
+) -> anyhow::Result<()> {
+    let json = JsonSites {
+        schema: SCHEMA_VERSION,
+        target,
+        sites: sites.iter().map(JsonLocation::from).collect(),
+    };
+    serde_json::to_writer_pretty(&mut *out, &json)?;
+    writeln!(out)?;
+    Ok(())
+}
+
+#[derive(Serialize)]
+struct JsonSites<'a> {
+    schema: u32,
+    target: &'a str,
+    sites: Vec<JsonLocation<'a>>,
+}
+
+impl<'a> From<&'a LocatedSite> for JsonLocation<'a> {
+    fn from(located: &'a LocatedSite) -> Self {
+        JsonLocation {
+            root: located.site.root.as_str(),
+            path: Some(located.site.path.as_str()),
+            line: Some(located.line_col.line),
+            col: Some(located.line_col.col),
+            byte_start: Some(located.site.span.start),
+            byte_end: Some(located.site.span.end),
+            region: Some(region_name(located.site.region)),
+        }
+    }
 }
 
 #[derive(Serialize)]
@@ -108,18 +147,7 @@ impl<'a> From<&'a Report> for JsonReport<'a> {
 impl<'a> From<&'a Diagnostic> for JsonDiagnostic<'a> {
     fn from(diagnostic: &'a Diagnostic) -> Self {
         let locations = match &diagnostic.locations {
-            Locations::Sites(sites) => sites
-                .iter()
-                .map(|located| JsonLocation {
-                    root: located.site.root.as_str(),
-                    path: Some(located.site.path.as_str()),
-                    line: Some(located.line_col.line),
-                    col: Some(located.line_col.col),
-                    byte_start: Some(located.site.span.start),
-                    byte_end: Some(located.site.span.end),
-                    region: Some(region_name(located.site.region)),
-                })
-                .collect(),
+            Locations::Sites(sites) => sites.iter().map(JsonLocation::from).collect(),
             Locations::Files(files) => files
                 .iter()
                 .map(|file| JsonLocation {

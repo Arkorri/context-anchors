@@ -1,8 +1,9 @@
-//! The one entrypoint: scan every present root, resolve every reference in the current root,
-//! group what was found. Broken references are data in the report; only tool failures are
-//! errors.
+//! Loading a workspace (scan every present root, index them) and the one guarantee built on
+//! it: `check`. Broken references are data in the report; only tool failures are errors.
 
 use std::collections::BTreeMap;
+
+use camino::Utf8PathBuf;
 
 use crate::config::{ConfigError, Discovered, UnverifiedPolicy};
 use crate::diagnostic::{
@@ -11,7 +12,7 @@ use crate::diagnostic::{
 use crate::index::{Index, Site};
 use crate::resolve::{IndexedRoot, IndexedRoots, Resolution, Resolver};
 use crate::root::{FilePath, RootName, RootSet, RootSetError};
-use crate::scan::{ScanError, ScanMode, ScanOutput, scan_root};
+use crate::scan::{ScanError, ScanMode, SkippedFile, WalkProblem, scan_root};
 use crate::span::PositionOverflow;
 use crate::text::{LanguageRegistry, RegistryError};
 
@@ -42,46 +43,101 @@ pub enum CheckError {
     Position(#[from] PositionOverflow),
 }
 
-pub fn run_check(discovered: Discovered, options: &CheckOptions) -> Result<Report, CheckError> {
-    let registry = LanguageRegistry::new()?;
-    let policy = options
-        .unverified
-        .unwrap_or(discovered.config.check.unverified);
-    let root_set = RootSet::load(discovered.root_dir, discovered.config)?;
+/// Files a root's scan could not check, kept for the report.
+#[derive(Debug, Clone, Default)]
+pub struct ScanFindings {
+    pub skipped: Vec<SkippedFile>,
+    pub problems: Vec<WalkProblem>,
+}
 
-    let mut builder = ReportBuilder::default();
-    let mut summary = Summary::default();
-    let mut indexes = BTreeMap::new();
-    let mut current_files = 0usize;
+/// Every present root scanned and indexed, ready for checking, querying, or renaming.
+pub struct Workspace {
+    pub registry: LanguageRegistry,
+    pub roots: IndexedRoots,
+    pub policy: UnverifiedPolicy,
+    pub findings: BTreeMap<RootName, ScanFindings>,
+    current_files_scanned: usize,
+}
 
-    for root in root_set.present() {
-        let is_current = root.name == *root_set.current_name();
-        let mode = if is_current {
-            ScanMode::Full
-        } else {
-            ScanMode::AnchorsOnly
-        };
-        let output = scan_root(root, &registry, mode).map_err(|source| CheckError::Scan {
-            root: root.name.clone(),
-            source,
-        })?;
-        summary.roots_scanned += 1;
-        if is_current {
-            current_files = output.files.len();
+impl Workspace {
+    /// The current root is scanned in full; external roots contribute anchors only.
+    pub fn load(discovered: Discovered) -> Result<Self, CheckError> {
+        let registry = LanguageRegistry::new()?;
+        let policy = discovered.config.check.unverified;
+        let root_set = RootSet::load(discovered.root_dir, discovered.config)?;
+
+        let mut indexes = BTreeMap::new();
+        let mut findings = BTreeMap::new();
+        let mut current_files_scanned = 0usize;
+        for root in root_set.present() {
+            let is_current = root.name == *root_set.current_name();
+            let mode = if is_current {
+                ScanMode::Full
+            } else {
+                ScanMode::AnchorsOnly
+            };
+            let output = scan_root(root, &registry, mode).map_err(|source| CheckError::Scan {
+                root: root.name.clone(),
+                source,
+            })?;
+            if is_current {
+                current_files_scanned = output.files.len();
+            }
+            findings.insert(
+                root.name.clone(),
+                ScanFindings {
+                    skipped: output.skipped,
+                    problems: output.problems,
+                },
+            );
+            indexes.insert(
+                root.name.clone(),
+                Index::from_scan(root.name.clone(), output.files),
+            );
         }
-        record_scan_problems(&mut builder, &root.name, &output);
-        indexes.insert(
-            root.name.clone(),
-            Index::from_scan(root.name.clone(), output.files),
-        );
+
+        Ok(Self {
+            roots: IndexedRoots::new(&root_set, indexes),
+            registry,
+            policy,
+            findings,
+            current_files_scanned,
+        })
     }
 
-    let roots = IndexedRoots::new(&root_set, indexes);
-    let (current_root, current_index) = roots.current();
-    summary.files_scanned = current_files;
-    summary.anchors = current_index.anchor_count();
+    pub fn current(&self) -> (&crate::root::Root, &Index) {
+        self.roots.current()
+    }
 
-    let mut resolver = Resolver::new(&roots, &registry);
+    pub fn root_dirs(&self) -> BTreeMap<RootName, Utf8PathBuf> {
+        self.roots
+            .present()
+            .map(|(root, _)| (root.name.clone(), root.dir.clone()))
+            .collect()
+    }
+}
+
+pub fn run_check(discovered: Discovered, options: &CheckOptions) -> Result<Report, CheckError> {
+    let workspace = Workspace::load(discovered)?;
+    check(&workspace, options)
+}
+
+pub fn check(workspace: &Workspace, options: &CheckOptions) -> Result<Report, CheckError> {
+    let policy = options.unverified.unwrap_or(workspace.policy);
+    let (current_root, current_index) = workspace.current();
+
+    let mut builder = ReportBuilder::default();
+    let mut summary = Summary {
+        roots_scanned: workspace.roots.present().count(),
+        files_scanned: workspace.current_files_scanned,
+        anchors: current_index.anchor_count(),
+        ..Summary::default()
+    };
+    for (root, findings) in &workspace.findings {
+        record_scan_findings(&mut builder, root, findings);
+    }
+
+    let mut resolver = Resolver::new(&workspace.roots, &workspace.registry);
     let in_scope =
         |site: &Site| options.only_files.is_empty() || options.only_files.contains(&site.path);
 
@@ -130,7 +186,7 @@ pub fn run_check(discovered: Discovered, options: &CheckOptions) -> Result<Repor
         }
     }
 
-    for (name, entry) in roots.external() {
+    for (name, entry) in workspace.roots.external() {
         let IndexedRoot::Present { index, .. } = entry else {
             continue;
         };
@@ -146,15 +202,11 @@ pub fn run_check(discovered: Discovered, options: &CheckOptions) -> Result<Repor
         }
     }
 
-    let root_dirs = root_set
-        .present()
-        .map(|root| (root.name.clone(), root.dir.clone()))
-        .collect();
-    Ok(builder.finish(policy, summary, root_dirs))
+    Ok(builder.finish(policy, summary, workspace.root_dirs()))
 }
 
-fn record_scan_problems(builder: &mut ReportBuilder, root: &RootName, output: &ScanOutput) {
-    for skipped in &output.skipped {
+fn record_scan_findings(builder: &mut ReportBuilder, root: &RootName, findings: &ScanFindings) {
+    for skipped in &findings.skipped {
         builder.file(
             DiagnosticKind::FileSkipped {
                 root: root.clone(),
@@ -166,7 +218,7 @@ fn record_scan_problems(builder: &mut ReportBuilder, root: &RootName, output: &S
             },
         );
     }
-    for problem in &output.problems {
+    for problem in &findings.problems {
         let message = match &problem.path {
             Some(path) => format!("{path}: {}", problem.message),
             None => problem.message.clone(),
@@ -181,11 +233,11 @@ fn record_scan_problems(builder: &mut ReportBuilder, root: &RootName, output: &S
     }
 }
 
-fn locate(index: &Index, site: Site) -> Result<LocatedSite, PositionOverflow> {
+/// Resolves a site's line and column from its index. The site's file is always present in the
+/// index it came from; the `None` arm is unreachable in practice and reported, not swallowed.
+pub fn locate(index: &Index, site: Site) -> Result<LocatedSite, PositionOverflow> {
     let line_col = match index.line_index(&site.path) {
         Some(line_index) => line_index.line_col(site.span.start)?,
-        // The site came from this index, so its file is present; this arm is unreachable in
-        // practice and reported as an overflow rather than swallowed.
         None => {
             return Err(PositionOverflow {
                 offset: site.span.start,
@@ -199,8 +251,6 @@ fn locate(index: &Index, site: Site) -> Result<LocatedSite, PositionOverflow> {
 #[allow(clippy::unwrap_used)]
 mod tests {
     use std::fs;
-
-    use camino::Utf8PathBuf;
 
     use super::*;
     use crate::config;

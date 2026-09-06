@@ -17,6 +17,10 @@ pub struct Cli {
 pub enum Command {
     /// Resolve every reference in the current root and report what does not resolve.
     Check(CheckArgs),
+    /// List every reference to a target.
+    Backrefs(BackrefsArgs),
+    /// Rename an anchor id, rewriting its declaration and every reference to it.
+    Rename(RenameArgs),
     /// Write an `anchr.toml`, the marker guide for agents, and optional editor hooks.
     Init(InitArgs),
     /// Print a shell completion script.
@@ -38,6 +42,42 @@ pub struct CheckArgs {
     /// Treat every unverified finding as an error.
     #[arg(long)]
     pub strict: bool,
+
+    #[arg(long, value_enum, default_value_t = Color::Auto)]
+    pub color: Color,
+}
+
+#[derive(Debug, Args)]
+pub struct BackrefsArgs {
+    /// A target in reference syntax, e.g. `#auth/flow`, `src/lib.rs#run`, `docs/guide.md`.
+    pub target: String,
+
+    /// Directory to start root discovery from (default: the current directory).
+    #[arg(long, value_name = "DIR")]
+    pub root: Option<Utf8PathBuf>,
+
+    #[arg(long, value_enum, default_value_t = Format::Human)]
+    pub format: Format,
+
+    #[arg(long, value_enum, default_value_t = Color::Auto)]
+    pub color: Color,
+}
+
+#[derive(Debug, Args)]
+pub struct RenameArgs {
+    /// The anchor id to rename.
+    pub old: String,
+
+    /// The new anchor id.
+    pub new: String,
+
+    /// Directory to start root discovery from (default: the current directory).
+    #[arg(long, value_name = "DIR")]
+    pub root: Option<Utf8PathBuf>,
+
+    /// Print the planned edits without writing anything.
+    #[arg(long)]
+    pub dry_run: bool,
 
     #[arg(long, value_enum, default_value_t = Color::Auto)]
     pub color: Color,

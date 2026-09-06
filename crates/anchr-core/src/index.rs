@@ -40,6 +40,15 @@ pub struct MalformedSite<'a> {
     pub site: Site,
 }
 
+/// An anchor declaration and where it was written.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct AnchorSite<'a> {
+    pub id: &'a AnchorId,
+    /// The bytes holding the id, which a rename rewrites.
+    pub id_span: ByteSpan,
+    pub site: Site,
+}
+
 /// `files` is the single owner of marker data; `anchors_by_id` is re-derived for a file on
 /// every update so the two cannot drift.
 #[derive(Debug, Clone)]
@@ -155,10 +164,29 @@ impl Index {
         })
     }
 
-    /// Every reference whose target equals `target` exactly.
-    pub fn backrefs<'a>(&'a self, target: &'a RefTarget) -> impl Iterator<Item = RefSite<'a>> {
+    pub fn anchors(&self) -> impl Iterator<Item = AnchorSite<'_>> {
+        let root = &self.root;
+        self.files.iter().flat_map(move |(path, record)| {
+            record
+                .markers
+                .iter()
+                .filter_map(move |marker| match &marker.payload {
+                    MarkerPayload::Anchor { id } => Some(AnchorSite {
+                        id,
+                        id_span: marker.body_span,
+                        site: site(root, path, marker.span, marker.region),
+                    }),
+                    MarkerPayload::Ref { .. } => None,
+                })
+        })
+    }
+
+    /// Every reference to `target`, treating a bare target and one prefixed with this
+    /// root's own name as the same thing.
+    pub fn backrefs<'a>(&'a self, target: &RefTarget) -> impl Iterator<Item = RefSite<'a>> {
+        let wanted = target.resolved_in(&self.root);
         self.refs()
-            .filter(move |reference| reference.target == target)
+            .filter(move |reference| reference.target.resolved_in(&self.root) == wanted)
     }
 
     pub fn line_index(&self, path: &FilePath) -> Option<&LineIndex> {
@@ -270,9 +298,9 @@ mod tests {
     }
 
     #[test]
-    fn backrefs_match_the_exact_target() {
+    fn backrefs_match_the_target_with_the_root_made_explicit() {
         let index = index_with(&[
-            ("a.md", "@ref[#x] @ref[other:#x] @ref[#y]"),
+            ("a.md", "@ref[#x] @ref[other:#x] @ref[#y] @ref[r:#x]"),
             ("b.md", "@ref[#x]"),
         ]);
         let target = crate::marker::parse_target("#x").unwrap().target;
@@ -281,7 +309,22 @@ mod tests {
             .map(|r| r.site.path.to_string())
             .collect();
         paths.sort_unstable();
-        assert_eq!(paths, vec!["a.md", "b.md"]);
+        assert_eq!(paths, vec!["a.md", "a.md", "b.md"]);
         assert!(index.backrefs(&target).all(|r| r.id_span.is_some()));
+
+        let prefixed = crate::marker::parse_target("r:#x").unwrap().target;
+        assert_eq!(index.backrefs(&prefixed).count(), 3);
+        let other = crate::marker::parse_target("other:#x").unwrap().target;
+        assert_eq!(index.backrefs(&other).count(), 1);
+    }
+
+    #[test]
+    fn anchors_expose_their_id_spans() {
+        let index = index_with(&[("a.md", "see @anchor[auth/flow] here")]);
+        let anchors: Vec<_> = index.anchors().collect();
+        assert_eq!(anchors.len(), 1);
+        assert_eq!(anchors[0].id.as_str(), "auth/flow");
+        assert_eq!(anchors[0].id_span, ByteSpan::new(12, 21));
+        assert_eq!(anchors[0].site.span, ByteSpan::new(4, 22));
     }
 }
