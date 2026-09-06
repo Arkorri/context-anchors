@@ -5,10 +5,14 @@
 //! markers out of prose and code comments, indexes anchors, resolves references, and groups
 //! the results into diagnostics. The binary and the LSP server are thin adapters over it.
 
+pub mod check;
 pub mod config;
+pub mod diagnostic;
 pub mod index;
 pub mod marker;
+pub mod resolve;
 pub mod root;
 pub mod scan;
 pub mod span;
+pub mod suggest;
 pub mod text;

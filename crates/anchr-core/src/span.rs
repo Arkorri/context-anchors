@@ -55,7 +55,7 @@ impl fmt::Display for LineCol {
     }
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, thiserror::Error)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, thiserror::Error)]
 #[error("byte offset {offset} exceeds the 4 GiB position limit")]
 pub struct PositionOverflow {
     pub offset: usize,

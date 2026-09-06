@@ -30,7 +30,7 @@ pub struct SkippedFile {
     pub reason: SkipReason,
 }
 
-#[derive(Debug, Clone, PartialEq, Eq, thiserror::Error)]
+#[derive(Debug, Clone, PartialEq, Eq, Hash, thiserror::Error)]
 pub enum SkipReason {
     #[error("file is {bytes} bytes, over the {limit}-byte limit (`scan.max-file-bytes`)")]
     TooLarge { bytes: u64, limit: u64 },

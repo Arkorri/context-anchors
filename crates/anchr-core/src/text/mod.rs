@@ -124,7 +124,7 @@ pub struct FileScan {
     pub line_index: LineIndex,
 }
 
-#[derive(Debug, Clone, PartialEq, Eq, thiserror::Error)]
+#[derive(Debug, Clone, PartialEq, Eq, Hash, thiserror::Error)]
 pub enum AnalyzeError {
     #[error("parsing exceeded the time budget of {budget:?}")]
     ParseTimeout { budget: Duration },
