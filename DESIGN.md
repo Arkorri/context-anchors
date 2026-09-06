@@ -76,6 +76,7 @@ semantics exactly where they belong — on the identity — without making cosme
 ---
 
 ## 4. Grammar
+<!-- @anchor[design/grammar] -->
 
 The entire marker language is two productions.
 
@@ -164,6 +165,7 @@ failure — being unable to tell *gone* from *not visible from here*.
 ---
 
 ## 6. Diagnostics
+<!-- @anchor[design/diagnostics] -->
 
 Validation produces three classes. The third is the one most tools get wrong.
 
@@ -212,6 +214,7 @@ client, and retrofitting structured output onto string formatting is miserable.
 ---
 
 ## 7. Architecture
+<!-- @anchor[design/architecture] -->
 
 ### Pipeline
 
@@ -281,6 +284,7 @@ Distribute prebuilt binaries via curl, homebrew, and an npx wrapper.
 ---
 
 ## 8. Invariants
+<!-- @anchor[design/invariants] -->
 
 Design rules committed to, in priority order.
 
@@ -308,6 +312,7 @@ Design rules committed to, in priority order.
 ---
 
 ## 9. Deferred, with reasoning
+<!-- @anchor[design/deferred] -->
 
 ### Content signatures — deferred to v2
 
@@ -365,6 +370,7 @@ if the CLI proves insufficient in practice.
 ---
 
 ## 10. Scope
+<!-- @anchor[design/scope] -->
 
 ### v1 — the guarantee
 
@@ -401,6 +407,7 @@ motivating use case ships in v1 for near-zero marginal work.
 ---
 
 ## 11. Open questions
+<!-- @anchor[design/open-questions] -->
 
 1. **Do directory references earn their place?** Directories rarely vanish without their files
    vanishing too. Nearly free to implement, so currently a "why not" rather than a real question.

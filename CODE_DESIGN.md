@@ -1,7 +1,7 @@
 # context-anchors — code-level design
 
 **Status:** approved 2026-09-04
-**Companion to:** `DESIGN.md` (what the tool is) and `DISTRIBUTION.md` (how it ships); this
+**Companion to:** @ref[DESIGN.md] (what the tool is) and @ref[DISTRIBUTION.md] (how it ships); this
 document covers how the code is shaped. Where it deviates from those two, §12 says so.
 
 ## Context
@@ -11,10 +11,10 @@ markers in prose and code comments, batch-validated by `anchr check`, grouped-by
 with an explicit *unverified* class, Rust single binary, LSP later. The repo has no code yet.
 
 This document is the code-level design that turns that into a Rust workspace: crate layout, module
-map, core types, the per-stage algorithms, the crate choices (reuse first), error/diagnostic
-model, security posture, CLI surface, config schema, and test strategy. Open questions from
-`DESIGN.md` §11 are answered inline where the code forces a decision. Question 4 (premise
-validation) is skipped per instruction.
+map, core types, the per-stage algorithms, the crate choices (reuse first), error/diagnostic model,
+security posture, CLI surface, config schema, and test strategy. Open questions from
+@ref[#design/open-questions] are answered inline where the code forces a decision. Question 4
+(premise validation) is skipped per instruction.
 
 The two design docs are drafts: where research found a better option, this plan takes it and
 records the deviation in §12. All milestones are built in quick succession before any release,
@@ -77,7 +77,7 @@ context-anchors/
   anchr.toml                      # dogfood: this repo checks its own docs in CI
 ```
 
-Package names: `anchr-core` (lib), `context-anchors` (bin → `anchr`). Matches `DISTRIBUTION.md` §1.
+Package names: `anchr-core` (lib), `context-anchors` (bin → `anchr`). Matches @ref[#dist/name].
 
 ---
 
@@ -126,11 +126,11 @@ pub enum MalformedMarker {
 }
 ```
 
-`Option<RootName>` on every target variant: the `root:` prefix is allowed on all three target
-kinds, not only on `#id`. `DESIGN.md` §4 only shows `root:#id`, but the grammar is
-`[root:]target` and making paths/symbols cross-root capable costs nothing and keeps one rule (§12 item 3).
+`Option<RootName>` on every target variant: the `root:` prefix is allowed on all three target kinds,
+not only on `#id`. @ref[#design/grammar] only shows `root:#id`, but the grammar is `[root:]target`
+and making paths/symbols cross-root capable costs nothing and keeps one rule (§12 item 3).
 
-### Target grammar (parse_target)
+### Target grammar (@ref[crates/anchr-core/src/marker/target.rs#parse_target])
 
 ```
 target      := [root ":"] body
@@ -177,16 +177,17 @@ RootSet (config) ─► scan each present root ─► FileScan{markers, malforme
 ```
 
 Single entrypoint: `check::run_check(root_set, options) -> Result<Report, CheckError>`.
-`CheckError` is tool failure (bad config, unreadable root) → exit 2. Broken references are
-*data* in `Report`, never `Err`.
+@ref[crates/anchr-core/src/check.rs#CheckError] is tool failure (bad config, unreadable root) →
+exit 2. Broken references are *data* in @ref[crates/anchr-core/src/diagnostic.rs#Report], never
+`Err`.
 
 ### 3.1 Text regions (which bytes may contain markers)
 
-`text::TextRegions` is a sorted `Vec<(ByteSpan, RegionKind)>` of *included* ranges. The lexer
-only ever runs over included ranges, so the container is the only thing that decides "prose vs
-example". `Container` is a pure selector enum (closed set, no trait object); the work happens in
-a per-thread `FileAnalyzer`, because tree-sitter's `Parser` is `!Sync` and must not be
-constructed per file:
+`text::TextRegions` is a sorted `Vec<(ByteSpan, RegionKind)>` of *included* ranges. The lexer only
+ever runs over included ranges, so the container is the only thing that decides "prose vs example".
+@ref[crates/anchr-core/src/text/mod.rs#Container] is a pure selector enum (closed set, no trait
+object); the work happens in a per-thread @ref[crates/anchr-core/src/text/mod.rs#FileAnalyzer],
+because tree-sitter's `Parser` is `!Sync` and must not be constructed per file:
 
 ```rust
 pub enum Container { Markdown, Source(&'static LanguageSpec), Plaintext }
@@ -229,25 +230,26 @@ error-tolerant tree. A file whose extension has no registered language is not a 
 container at all (see registry below). `Parser` is `!Sync`, so one lives per walker thread
 (§3.3); `Query` objects are compiled once per language and shared.
 
-**Plaintext** — one region `0..len`, kind `Whole`. Answers `DESIGN.md` §11 Q3 for v1: a
-plaintext container cannot carry documentation about the marker syntax, and that is
-acceptable; the escape hatch is to write such docs in markdown. Note this in the user docs.
+**Plaintext** — one region `0..len`, kind `Whole`. Answers @ref[#design/open-questions] Q3 for v1: a
+plaintext container cannot carry documentation about the marker syntax, and that is acceptable; the
+escape hatch is to write such docs in markdown. Note this in the user docs.
 
-**LanguageRegistry** (`text/language.rs`): table
-`ext → LanguageSpec { name, language: Language, comment_query: Query, declaration_query: Option<Query> }`
-for the core bundle: TypeScript and TSX (two parsers from one crate), JavaScript, Python, Rust,
-Go; markdown is handled by pulldown. Constructed by `LanguageRegistry::new() -> Result<Self,
-RegistryError>` once in `run_check` and passed by `&`, not in a `LazyLock`: `Query::new` returns
-`Result` (ABI or query-syntax drift is a real runtime failure) and a static initializer would
-have to `expect`. A unit test asserts construction succeeds so drift fails CI.
+**LanguageRegistry** (@ref[crates/anchr-core/src/text/language.rs#LanguageRegistry]): table `ext →
+LanguageSpec { name, language: Language, comment_query: Query, declaration_query: Option<Query> }`
+for the core bundle: TypeScript and TSX (two parsers from one crate), JavaScript, Python, Rust, Go;
+markdown is handled by pulldown. Constructed by `LanguageRegistry::new() -> Result<Self,
+RegistryError>` once in @ref[crates/anchr-core/src/check.rs#run_check] and passed by `&`, not in a
+`LazyLock`: `Query::new` returns `Result` (ABI or query-syntax drift is a real runtime failure) and
+a static initializer would have to `expect`. A unit test asserts construction succeeds so drift
+fails CI.
 
-`declaration_query` is the grammar crate's `TAGS_QUERY` (tree-sitter's `tags.scm`, verified
-exported by all five) *concatenated with* a per-language `supplementary_declarations` string,
-because `tags.scm` coverage is uneven — TypeScript's is short and is not expected to capture
-`type_alias_declaration`, `enum_declaration`, or `export const f = () => {}`, the dominant
-declaration form in TS. The per-kind fixture list in §9 is written before the supplementary
-queries so gaps surface as failing tests, not as false `SymbolMissing` errors. Grammar crates
-depend only on `tree-sitter-language`, so the runtime version is pinned independently
+@ref[crates/anchr-core/src/text/language.rs#declaration_query] is the grammar crate's `TAGS_QUERY`
+(tree-sitter's `tags.scm`, verified exported by all five) *concatenated with* a per-language
+`supplementary_declarations` string, because `tags.scm` coverage is uneven — TypeScript's is short
+and is not expected to capture `type_alias_declaration`, `enum_declaration`, or `export const f = ()
+=> {}`, the dominant declaration form in TS. The per-kind fixture list in §9 is written before the
+supplementary queries so gaps surface as failing tests, not as false `SymbolMissing` errors. Grammar
+crates depend only on `tree-sitter-language`, so the runtime version is pinned independently
 (`LANGUAGE.into()`). Adding a language = one table row + one dependency. Known caveat:
 `tree-sitter-typescript` is the stalest grammar (late 2024); newer TS syntax parses with errors,
 which §3.5 turns into an *unverified* outcome rather than a false error.
@@ -256,7 +258,7 @@ which §3.5 turns into an *unverified* outcome rather than a false error.
 Extension not in any list → file is not scanned at all (opt-in principle applies to files as
 well as markers).
 
-### 3.2 Marker lexing (`marker/lex.rs`)
+### 3.2 Marker lexing (@ref[crates/anchr-core/src/marker/lex.rs])
 
 The marker language is regular. One compiled `regex::Regex` in a `LazyLock`:
 
@@ -264,28 +266,30 @@ The marker language is regular. One compiled `regex::Regex` in a `LazyLock`:
 @(anchor|ref)\[(?:([^\]\n]*)\]|)
 ```
 
-The empty alternative catches an opener with no closer on the same line → `Unclosed`. A
-post-filter rejects matches whose preceding *character* (`source[..start].chars().next_back()`,
-not the preceding byte, so `é@ref[x]` and `e@ref[x]` behave the same) is alphanumeric or `_`, so
+The empty alternative catches an opener with no closer on the same line → `Unclosed`. A post-filter
+rejects matches whose preceding *character* (`source[..start].chars().next_back()`, not the
+preceding byte, so `é@ref[x]` and `e@ref[x]` behave the same) is alphanumeric or `_`, so
 `foo@ref[...]` inside an email-like token is not a marker. Because the lexer runs over the source
-slice and not the rendered text, a markdown backslash escape `@ref\[x\]` is never lexed; this is
-the documented way to show a literal marker in prose outside a code fence. For each region, run the regex on `&source[span]`, offset
-match positions by `span.start`. Body goes to `AnchorId::parse` or `parse_target`; failures
-become `MalformedMarker`. Multiple markers per line are naturally supported.
+slice and not the rendered text, a markdown backslash escape `@ref\[x\]` is never lexed; this is the
+documented way to show a literal marker in prose outside a code fence. For each region, run the
+regex on `&source[span]`, offset match positions by `span.start`. Body goes to `AnchorId::parse` or
+`parse_target`; failures become @ref[crates/anchr-core/src/marker/mod.rs#MalformedMarker]. Multiple
+markers per line are naturally supported.
 
 Output per file: `FileScan { path, markers: Vec<Marker>, malformed: Vec<MalformedMarker>, line_index: LineIndex }`.
 
-### 3.3 Scan (`scan.rs`)
+### 3.3 Scan (@ref[crates/anchr-core/src/scan.rs])
+<!-- @anchor[code/scan] -->
 
-For a `Root`: `ignore::WalkBuilder::new(root.dir)` with `.hidden(true)`, `.git_ignore(true)`,
-`.require_git(false)` (so `.gitignore` is honored in non-git roots like `~/.claude`),
-`.follow_links(false)`, `.add_custom_ignore_filename(".anchrignore")`, and an `OverrideBuilder`
-holding **only** `config.scan.exclude` as `!` globs. `include` is *not* an override: `ignore`
-consults overrides before ignore files and returns on any override match, so a whitelist glob
-would silently un-ignore gitignored files (`CHANGELOG.md`, `*.generated.ts`). Instead `include`
-is compiled to a `globset::GlobSet` (`literal_separator(true)`) and applied as a post-filter in
-the visitor, after the walker has already applied `.gitignore`. A two-line integration test
-pins this: a gitignored `.md` file must not be scanned.
+For a @ref[crates/anchr-core/src/root.rs#Root]: `ignore::WalkBuilder::new(root.dir)` with
+`.hidden(true)`, `.git_ignore(true)`, `.require_git(false)` (so `.gitignore` is honored in non-git
+roots like `~/.claude`), `.follow_links(false)`, `.add_custom_ignore_filename(".anchrignore")`, and
+an `OverrideBuilder` holding **only** `config.scan.exclude` as `!` globs. `include` is *not* an
+override: `ignore` consults overrides before ignore files and returns on any override match, so a
+whitelist glob would silently un-ignore gitignored files (`CHANGELOG.md`, `*.generated.ts`). Instead
+`include` is compiled to a `globset::GlobSet` (`literal_separator(true)`) and applied as a
+post-filter in the visitor, after the walker has already applied `.gitignore`. A two-line
+integration test pins this: a gitignored `.md` file must not be scanned.
 
 `build_parallel()` gives a thread per core with a per-thread visitor. Each visitor owns a
 `FileAnalyzer` (§3.1) and a clone of an `mpsc::Sender<ScanOutcome>`. Per file:
@@ -306,7 +310,7 @@ A skipped file (too large, not UTF-8) may contain anchors that are therefore uni
 can surface elsewhere as `AnchorMissing`. The `FileTooLarge` / `FileNotUtf8` diagnostics say so
 explicitly and name `max-file-bytes` as the knob, so the cause is visible in the same report.
 
-### 3.4 Index (`index.rs`)
+### 3.4 Index (@ref[crates/anchr-core/src/index.rs])
 
 Per root, in memory, derived:
 
@@ -329,15 +333,15 @@ impl Index {
 `files` is the only owner of marker data; `anchors_by_id` is rebuilt for a file inside
 `update_file`/`remove_file` so the two can never drift.
 
-**No persistent cache in v1.** `DESIGN.md` §7 says "incremental, gitignored"; the scan is
-embarrassingly parallel and tree-sitter is fast enough that a full rebuild on a mid-size repo
-is well under a second, and an on-disk cache adds an invalidation surface with no correctness
-benefit ("never authoritative"). The `Index` API above is already incremental for the LSP's
-in-memory needs. If measurement later says otherwise, persistence goes in a cache dir
-(`directories` crate) keyed by root path, *not* inside the repo, so nothing needs gitignoring
-(§12 item 2).
+**No persistent cache in v1.** @ref[#design/architecture] says "incremental, gitignored"; the scan
+is embarrassingly parallel and tree-sitter is fast enough that a full rebuild on a mid-size repo is
+well under a second, and an on-disk cache adds an invalidation surface with no correctness benefit
+("never authoritative"). The @ref[crates/anchr-core/src/index.rs#Index] API above is already
+incremental for the LSP's in-memory needs. If measurement later says otherwise, persistence goes in
+a cache dir (`directories` crate) keyed by root path, *not* inside the repo, so nothing needs
+gitignoring (§12 item 2).
 
-### 3.5 Resolution (`resolve/`)
+### 3.5 Resolution (@ref[crates/anchr-core/src/resolve/])
 
 ```rust
 pub enum Resolution {
@@ -363,50 +367,53 @@ pub enum Unverified {
 }
 ```
 
-`Resolver` holds `&RootSet`, `&HashMap<RootName, Index>`, its own `FileAnalyzer`, a
-`DirectoryListingCache`, and a per-run `symbol_cache: HashMap<(RootName, RelPath), SymbolTable>`
-so a file referenced by 40 refs is parsed once. Resolution runs single-threaded after the fold
-(it is cheap relative to the scan), so these caches need no synchronization.
+@ref[crates/anchr-core/src/resolve/mod.rs#Resolver] holds `&RootSet`, `&HashMap<RootName, Index>`,
+its own `FileAnalyzer`, a `DirectoryListingCache`, and a per-run `symbol_cache: HashMap<(RootName,
+RelPath), SymbolTable>` so a file referenced by 40 refs is parsed once. Resolution runs
+single-threaded after the fold (it is cheap relative to the scan), so these caches need no
+synchronization.
 
-**Root selection happens once, before dispatch on target kind**, so all three variants share
-one rule: `None` ⇒ current root; a name not in `RootSet` ⇒ `Unresolved::RootUndeclared` (a typo,
-with a suggestion from the declared names); `RootStatus::Absent` ⇒ `Unverified::RootAbsent`;
-otherwise resolution proceeds against that root's dir and index.
+**Root selection happens once, before dispatch on target kind**, so all three variants share one
+rule: `None` ⇒ current root; a name not in @ref[crates/anchr-core/src/root.rs#RootSet] ⇒
+`Unresolved::RootUndeclared` (a typo, with a suggestion from the declared names);
+`RootStatus::Absent` ⇒ `Unverified::RootAbsent`; otherwise resolution proceeds against that root's
+dir and index.
 
-- **Path**: exact-name, component-by-component lookup against a `read_dir` listing of each
-  parent, cached per directory for the run (`DirectoryListingCache`, shared with the sibling
-  suggestions in §3.6). Not `symlink_metadata`: on a case-insensitive filesystem (macOS default)
-  `@ref[src/Foo.ts]` would resolve against `foo.ts` and then fail in Linux CI, breaking invariant
-  5. Every component present ⇒ Resolved. A trailing `/` in the target additionally requires the
-  final entry to be a directory. Directory refs stay (§11 Q1: free, so keep).
+- **Path**: exact-name, component-by-component lookup against a `read_dir` listing of each parent,
+  cached per directory for the run (`DirectoryListingCache`, shared with the sibling suggestions in
+  §3.6). Not `symlink_metadata`: on a case-insensitive filesystem (macOS default) `@ref[src/Foo.ts]`
+  would resolve against `foo.ts` and then fail in Linux CI, breaking invariant 5
+  (@ref[#design/invariants]). Every component present ⇒ Resolved. A trailing `/` in the target
+  additionally requires the final entry to be a directory. Directory refs stay
+  (@ref[#design/open-questions] Q1: free, so keep).
 - **Symbol**: path must exist (else `PathMissing`); the joined path is canonicalized and must
-  `starts_with` the canonical root (else `PathEscapesRoot`, since this is a read); registry
-  lookup by extension (none ⇒ `NoGrammar`; no declaration query ⇒ `NoSymbolQuery`); parse with
+  `starts_with` the canonical root (else `PathEscapesRoot`, since this is a read); registry lookup
+  by extension (none ⇒ `NoGrammar`; no declaration query ⇒ `NoSymbolQuery`); parse with
   `parse_with_options` and a progress callback that aborts past a wall-clock budget (⇒
   `Unverified::ParseTimeout`); run `declaration_query` with `QueryCursor::matches` (a
-  `StreamingIterator` in tree-sitter 0.27, so `while let Some(m) = matches.next()`); per match,
-  keep it only if it has a capture whose name starts with `definition.` (a per-match filter;
-  there is no clean pattern-to-capture API for `disable_pattern`), and record the `@name`
-  capture's text and `byte_range()` into `SymbolTable { declarations: HashMap<String,
-  Vec<ByteSpan>>, has_parse_errors: bool }` — spans are what go-to-definition (step 9) needs.
-  If the declaration cap (100k) is hit the table is discarded and the outcome is
-  `Unverified::SymbolTableTruncated`, never a truncated table that yields false misses.
-  Outcome: name found ⇒ Resolved; not found and `root_node().has_error()` ⇒
-  `Unverified::ParseErrors { path, language }` with a hint about grammar staleness (a declaration
+  `StreamingIterator` in tree-sitter 0.27, so `while let Some(m) = matches.next()`); per match, keep
+  it only if it has a capture whose name starts with `definition.` (a per-match filter; there is no
+  clean pattern-to-capture API for `disable_pattern`), and record the `@name` capture's text and
+  `byte_range()` into `SymbolTable { declarations: HashMap<String, Vec<ByteSpan>>, has_parse_errors:
+  bool }` — spans are what go-to-definition (step 9) needs. If the declaration cap (100k) is hit the
+  table is discarded and the outcome is `Unverified::SymbolTableTruncated`, never a truncated table
+  that yields false misses. Outcome: name found ⇒ Resolved; not found and `root_node().has_error()`
+  ⇒ `Unverified::ParseErrors { path, language }` with a hint about grammar staleness (a declaration
   inside an ERROR node is invisible to the query, and reporting that as missing would be a false
-  positive); not found and clean tree ⇒ `SymbolMissing`. Guarantee is exactly `DESIGN.md` §7's: *a declaration with this name
-  exists in this file*, any nesting depth. Running the query ourselves (~40 lines) rather than
-  pulling `tree-sitter-tags` keeps one API for comments and declarations.
+  positive); not found and clean tree ⇒ `SymbolMissing`. Guarantee is exactly
+  @ref[#design/architecture]'s: *a declaration with this name exists in this file*, any nesting
+  depth. Running the query ourselves (~40 lines) rather than pulling `tree-sitter-tags` keeps one
+  API for comments and declarations.
 - **Anchor**: `index.anchor_sites(id).is_empty()` in the selected root ⇒ `AnchorMissing`.
   Duplicated IDs still resolve (the duplicate is its own error at the anchor sites, or an
   `ExternalDuplicate` unverified finding if the root is external).
 
-Answers §11 Q2, more broadly than asked: every unverified outcome (absent root included) is
-non-blocking by default; `--strict`, or `check.unverified = "error"` in config, promotes *all*
-unverified findings to errors. CI users read `--strict` as "fail on anything you could not
-check", so the flag means exactly that rather than a single-cause toggle.
+Answers @ref[#design/open-questions] Q2, more broadly than asked: every unverified outcome (absent
+root included) is non-blocking by default; `--strict`, or `check.unverified = "error"` in config,
+promotes *all* unverified findings to errors. CI users read `--strict` as "fail on anything you
+could not check", so the flag means exactly that rather than a single-cause toggle.
 
-### 3.6 Diagnostics and grouping (`diagnostic.rs`)
+### 3.6 Diagnostics and grouping (@ref[crates/anchr-core/src/diagnostic.rs])
 
 ```rust
 pub enum Severity { Error, Unverified }
@@ -423,43 +430,44 @@ pub struct Report { pub diagnostics: Vec<Diagnostic>, pub summary: Summary }
 pub struct Summary { refs_checked, refs_resolved, errors, unverified, anchors, files_scanned }
 ```
 
-Grouping key is the `DiagnosticKind` value itself (derive `Eq + Hash`; it carries the *cause*
-and never a location): one `AnchorMissing{auth/flow}` with twelve sites, not twelve
-diagnostics; all `Unclosed` `@ref[` markers in one group. File-level findings use
-`Locations::Files`. Sites sorted by (path, line). Errors sorted before unverified, then by
-location count desc. `Report::has_errors()` drives exit code 1.
+Grouping key is the @ref[crates/anchr-core/src/diagnostic.rs#DiagnosticKind] value itself (derive
+`Eq + Hash`; it carries the *cause* and never a location): one `AnchorMissing{auth/flow}` with
+twelve sites, not twelve diagnostics; all `Unclosed` `@ref[` markers in one group. File-level
+findings use `Locations::Files`. Sites sorted by (path, line). Errors sorted before unverified, then
+by location count desc. `Report::has_errors()` drives exit code 1.
 
-Suggestions (`suggest.rs`): rustc's rule, which fits short identifiers better than Jaro. Over
-the candidate set (all anchor IDs in the target root; all symbol names in the target file;
-sibling entries of the missing path's parent directory): first a case-insensitive exact match,
-then `strsim::osa_distance` (restricted Damerau-Levenshtein) accepted when
-`distance ≤ max(len, 3) / 3`, then for hierarchical IDs the same on the last `/` segment. At
+Suggestions (@ref[crates/anchr-core/src/suggest.rs#suggest]): rustc's rule, which fits short
+identifiers better than Jaro. Over the candidate set (all anchor IDs in the target root; all symbol
+names in the target file; sibling entries of the missing path's parent directory): first a
+case-insensitive exact match, then `strsim::osa_distance` (restricted Damerau-Levenshtein) accepted
+when `distance ≤ max(len, 3) / 3`, then for hierarchical IDs the same on the last `/` segment. At
 most one suggestion, the lowest distance; never mutates.
 
 ### 3.7 Rendering (binary crate)
 
-- **Human** (`render/human.rs`): `annotate-snippets` 0.12, which is rustc's own renderer and is
-  built around exactly the cause→N-sites shape: one titled `Group` holding several `Snippet`s,
-  each with its own path and byte-span annotations. Output goes through `anstream` for TTY
-  detection and `NO_COLOR`. Per diagnostic: title = cause (`unknown id \`auth/flow\``), the first
-  site rendered as a source snippet with the marker span underlined, the remaining sites as a
-  compact `path:line:col` list (twelve full snippets would bury the report), and the suggestion
-  as a `help:` footer. Source text is not retained in the `Index`; the renderer re-reads the one
-  file per diagnostic it renders as a snippet and degrades to the `path:line:col` form if that
-  read fails (the file changed or vanished between scan and render). Line/col for every site
-  comes from `LocatedSite`, so the list form never needs the source. Multi-file gutter alignment is more work than it looks, which is why this
-  is borrowed rather than written; miette wants to own error types and ariadne defaults to char
-  offsets, so neither fits.
-- **JSON** (`render/json.rs`): `serde` on a dedicated `JsonReport` DTO (not the core types, so
-  the wire format is decoupled), with `"schema": 1`. Locations carry path, 1-based line/col,
-  byte span, and region kind. Unverified diagnostics include a `hint` string that names the fix
-  ("install the `full` build or add a grammar for `.ex`" per `DISTRIBUTION.md` §6).
+- **Human** (@ref[crates/context-anchors/src/render/human.rs]): `annotate-snippets` 0.12, which is
+  rustc's own renderer and is built around exactly the cause→N-sites shape: one titled `Group`
+  holding several `Snippet`s, each with its own path and byte-span annotations. Output goes through
+  `anstream` for TTY detection and `NO_COLOR`. Per diagnostic: title = cause (`unknown id
+  \`auth/flow\``), the first site rendered as a source snippet with the marker span underlined, the
+  remaining sites as a compact `path:line:col` list (twelve full snippets would bury the report),
+  and the suggestion as a `help:` footer. Source text is not retained in the `Index`; the renderer
+  re-reads the one file per diagnostic it renders as a snippet and degrades to the `path:line:col`
+  form if that read fails (the file changed or vanished between scan and render). Line/col for every
+  site comes from `LocatedSite`, so the list form never needs the source. Multi-file gutter
+  alignment is more work than it looks, which is why this is borrowed rather than written; miette
+  wants to own error types and ariadne defaults to char offsets, so neither fits.
+- **JSON** (@ref[crates/context-anchors/src/render/json.rs#JsonReport]): `serde` on a dedicated
+  `JsonReport` DTO (not the core types, so the wire format is decoupled), with `"schema": 1`.
+  Locations carry path, 1-based line/col, byte span, and region kind. Unverified diagnostics include
+  a `hint` string that names the fix ("install the `full` build or add a grammar for `.ex`" per
+  @ref[#dist/implementation-decisions]).
 
 Exit codes: 0 clean (unverified may be present), 1 errors, 2 tool failure.
 
 ---
 
-## 4. Config (`config.rs`)
+## 4. Config (@ref[crates/anchr-core/src/config.rs#Config])
 
 `anchr.toml`, discovered with `cwd.ancestors().find(|d| d.join("anchr.toml").is_file())` (or
 `--root`), falling back to the nearest ancestor containing `.git`, then cwd. Missing file ⇒
@@ -490,8 +498,9 @@ plaintext = ["txt"]
 unverified = "report"       # or "error" (same as --strict)
 ```
 
-The current root needs a `RootName` for every `Site`; `[root] name` provides it, defaulting to
-the directory's basename (validated; an invalid basename is a config error that names the fix).
+The current root needs a @ref[crates/anchr-core/src/root.rs#RootName] for every
+@ref[crates/anchr-core/src/index.rs#Site]; `[root] name` provides it, defaulting to the directory's
+basename (validated; an invalid basename is a config error that names the fix).
 
 External roots load *their own* `anchr.toml` for `[scan]`/`[containers]` if one exists;
 otherwise defaults. Their `[roots]` and `[check]` tables are ignored, and they are scanned
@@ -501,7 +510,7 @@ bounds, spans), but the *roots it declares are trusted*: a config pointing a roo
 
 ---
 
-## 5. CLI (`cli.rs`)
+## 5. CLI (@ref[crates/context-anchors/src/cli.rs])
 
 ```
 anchr check [PATHS...] [--root DIR] [--format human|json] [--strict] [--color auto|always|never]
@@ -517,14 +526,15 @@ finding to an error (§3.5).
 covers the whole root so anchor resolution is correct; duplicate-anchor and file-level findings
 are reported regardless of the filter because they affect the whole root).
 
-`init` is the only writing command in milestone 1. Rules: never overwrite an existing file
-without `--force`; `--dry-run` prints what would be written; every path written is printed. It
-writes `anchr.toml` and an `AGENTS.md`-compatible instruction block. For `--agent claude` it
-merges a `PostToolUse` hook into `.claude/settings.json` via a `serde_json::Value`
-read-modify-write that preserves every key it does not own, and refuses (with the exact JSON to
-paste) if that file is not valid JSON. Idempotent: running `init` twice is a no-op the second
-time. `lsp`, `backrefs`, `rename`, `coverage` are v1.1 subcommands and slot in
-as `commands/*.rs` with no structural change.
+In milestone 1, `init` (@ref[crates/context-anchors/src/commands/init.rs]) is the only writing
+command. Rules: never overwrite an existing file without `--force`; `--dry-run` prints what would be
+written; every path written is printed. It writes `anchr.toml` and an `AGENTS.md`-compatible
+instruction block. For `--agent claude` it merges a `PostToolUse` hook into `.claude/settings.json`
+via a `serde_json::Value` read-modify-write that preserves every key it does not own, and refuses
+(with the exact JSON to paste) if that file is not valid JSON. Idempotent: running `init` twice is a
+no-op the second time. `lsp`, `backrefs`, `rename`, `coverage` are v1.1 subcommands and slot in
+under @ref[crates/context-anchors/src/commands/] (the LSP under
+@ref[crates/context-anchors/src/lsp/]) with no structural change.
 
 ---
 
@@ -550,7 +560,7 @@ target grammar parser, the region-complement logic, the index, resolution, and g
 | Errors | `thiserror` (core) / `anyhow` (bin) | 2.0.20 / 1.0.104 | |
 | Tests | `insta` 1.48.0, `assert_cmd` 2.2.2, `predicates` 3.1.4, `tempfile` 3.27.0, `proptest` 1.11.0 | | |
 | LSP (v1.1) | `lsp-server` + `ls-types` | 0.10.0 / 0.0.6 | sync loop, no tokio; `lsp-types` and `tower-lsp` are unmaintained |
-| Release | `cargo-dist` (`dist`) | 0.32.0 | per `DISTRIBUTION.md` §3; musl targets |
+| Release | `cargo-dist` (`dist`) | 0.32.0 | per @ref[#dist/cargo-dist]; musl targets |
 | Supply chain | `cargo-deny` (`cargo-audit` subsumed) | 0.20.2 | |
 
 Not used, deliberately: `rayon` (walker already parallel), `tree-sitter-tags` (we run the query),
@@ -562,7 +572,9 @@ Not used, deliberately: `rayon` (walker already parallel), `tree-sitter-tags` (w
 ## 7. Error handling model
 
 - `anchr-core`: every fallible fn returns `Result<T, SpecificError>` with `thiserror` enums per
-  module (`ConfigError`, `ScanError`, `ContainerError`). No `unwrap`/`expect` in library code
+  module (@ref[crates/anchr-core/src/config.rs#ConfigError],
+  @ref[crates/anchr-core/src/scan.rs#ScanError],
+  @ref[crates/anchr-core/src/text/mod.rs#AnalyzeError]). No `unwrap`/`expect` in library code
   (`clippy::unwrap_used`, `clippy::expect_used` = deny at workspace level; tests are exempt via
   `#[cfg_attr(test, allow(...))]`).
 - Two channels, kept apart on purpose: **tool failures** propagate as `Err` (exit 2);
@@ -587,22 +599,23 @@ Not used, deliberately: `rayon` (walker already parallel), `tree-sitter-tags` (w
 
 ## 9. Testing
 
-- **Unit** (in each module): `parse_target` table tests incl. every rejection reason
-  (qualified symbol, reserved chars in path segments, `.`/`..`, trailing-slash expectation,
-  root prefix on each kind); `AnchorId` charset; lexer with `proptest` (round-trip: any generated
-  valid marker embedded in random text is found with the right span; any text without
-  `@anchor[`/`@ref[` yields none) plus a regression corpus for CRLF files and `\r` in a body,
-  multi-byte text before a marker (offset and line/col both), and a non-ASCII preceding char;
+- **Unit** (in each module): `parse_target` table tests incl. every rejection reason (qualified
+  symbol, reserved chars in path segments, `.`/`..`, trailing-slash expectation, root prefix on each
+  kind); @ref[crates/anchr-core/src/marker/id.rs#AnchorId] charset; lexer with `proptest`
+  (round-trip: any generated valid marker embedded in random text is found with the right span; any
+  text without `@anchor[`/`@ref[` yields none) plus a regression corpus for CRLF files and `\r` in a
+  body, multi-byte text before a marker (offset and line/col both), and a non-ASCII preceding char;
   markdown regions with `insta` snapshots on fixtures covering fenced/indented code, inline code,
-  headings, HTML comments, reference-style links, marker split by `[`, backslash-escaped marker
-  not lexed, fence inside a blockquote and inside a list item, tilde fence, longer closing fence,
-  unclosed fence at EOF, indented code inside a nested list (the complement approach's only
-  failure mode is an imprecise code range letting an example through, so these are the tests
-  that matter); per-language source fixtures asserting comment extraction and `SymbolTable`
-  contents against a **per-kind declaration list written first** (function, struct/class,
-  interface, enum, type alias, method, const/arrow-function export, module), plus one fixture
-  per language with deliberately broken syntax around a declaration asserting
-  `Unverified::ParseErrors` rather than `SymbolMissing`; `LanguageRegistry::new()` succeeds.
+  headings, HTML comments, reference-style links, marker split by `[`, backslash-escaped marker not
+  lexed, fence inside a blockquote and inside a list item, tilde fence, longer closing fence,
+  unclosed fence at EOF, indented code inside a nested list (the complement approach's only failure
+  mode is an imprecise code range letting an example through, so these are the tests that matter);
+  per-language source fixtures asserting comment extraction and
+  @ref[crates/anchr-core/src/text/source.rs#SymbolTable] contents against a **per-kind declaration
+  list written first** (function, struct/class, interface, enum, type alias, method,
+  const/arrow-function export, module), plus one fixture per language with deliberately broken
+  syntax around a declaration asserting `Unverified::ParseErrors` rather than `SymbolMissing`;
+  `LanguageRegistry::new()` succeeds.
 - **Integration** (`crates/context-anchors/tests/`): fixture mini-repos under
   `tests/fixtures/<case>/` with an expected `report.json` snapshot via `insta`; `assert_cmd`
   for exit codes 0/1/2, `--format json` schema stability, `--strict`, absent external root,
@@ -613,22 +626,26 @@ Not used, deliberately: `rayon` (walker already parallel), `tree-sitter-tags` (w
   `PATHS` filtering semantics, a human-output `insta` snapshot with `--color never`, a
   bad-config exit-2 snapshot showing the caret rendering, and `init` idempotency / `--force` /
   `--dry-run` / settings-merge preserving foreign keys.
-- **Dogfood**: `anchr.toml` at repo root; CI runs `anchr check` on `DESIGN.md` /
-  `DISTRIBUTION.md` (their inline `@ref[...]` examples live in fences, which is itself a test of
-  fence exclusion).
+- **Dogfood**: @ref[anchr.toml] at repo root; CI runs `anchr check --strict` over the repository.
+  The design documents carry live markers: cross-document citations are anchor refs, and the
+  first mention of a type or module in each section is a symbol or path ref. Same-document `§`
+  citations stay numeric, since a renumbering is visible from inside the file being edited. The
+  inline `@ref[...]` examples in those documents live in fences, which is itself a test of fence
+  exclusion.
 - **Security gates in CI**: `cargo deny check`, `cargo audit`, `cargo clippy -D warnings`,
   `cargo test`, plus `cargo build --release` size check for the binary (grammar bundle budget).
 
 ---
 
 ## 10. Security posture (from the corgea checklist)
+<!-- @anchor[code/security] -->
 
 Threat model: every walked file, every config file, and every marker body is untrusted input. A
 hostile repository must not be able to crash the checker, read outside its roots, or exhaust
 memory. Concrete commitments, mapped to the checklist items they satisfy:
 
 **Workspace lints and profile** (items 1, 2, 7, 9, 10, 11, 15, 24) — declared once in the
-root `Cargo.toml`, every crate opts in with `lints.workspace = true`:
+root @ref[Cargo.toml], every crate opts in with `lints.workspace = true`:
 
 ```toml
 [workspace.package]
@@ -657,11 +674,13 @@ overflow-checks = true         # span arithmetic on file-derived offsets must ne
 panic = "unwind"
 ```
 
-`#[must_use]` on `Report`, `Resolution`, and every `parse` constructor. **No** `#[non_exhaustive]`
-on core enums: the binary crate matches `DiagnosticKind`, `Unresolved`, and `Unverified`
-exhaustively in both renderers, and `non_exhaustive` (which applies across crates) would force
-`_ =>` arms there and defeat the "add a variant, every match fails to compile" property we want.
-It goes only on the JSON DTO enums that external consumers deserialize.
+`#[must_use]` on `Report`, @ref[crates/anchr-core/src/resolve/mod.rs#Resolution], and every `parse`
+constructor. **No** `#[non_exhaustive]` on core enums: the binary crate matches `DiagnosticKind`,
+@ref[crates/anchr-core/src/resolve/mod.rs#Unresolved], and
+@ref[crates/anchr-core/src/resolve/mod.rs#Unverified] exhaustively in both renderers, and
+`non_exhaustive` (which applies across crates) would force `_ =>` arms there and defeat the "add a
+variant, every match fails to compile" property we want. It goes only on the JSON DTO enums that
+external consumers deserialize.
 
 **Panics policy** (items 6, 7) — a panic is a bug, never control flow. In the CLI there is no
 `catch_unwind` around per-file work: all FFI sits behind the `tree-sitter` crate's safe API, so
@@ -683,22 +702,24 @@ escapes the root yields `Unresolved::PathEscapesRoot` rather than a read. Existe
 `&Utf8Path`, not owned paths. A `proptest` asserts `RelPath::parse(s).map(|p| root.join(p))`
 never escapes `root` for arbitrary `s`.
 
-**Input bounds** (items 14, 16, 19) — `AnchorId`, `RootName`, `SymbolName`, and `RelPath` are
-allowlist-parsed newtypes with private fields and length caps (ID ≤ 256 bytes, segment ≤ 64,
-path ≤ 1024). File size is checked from metadata before reading (`max-file-bytes`, default
-2 MiB, validated ≤ `u32::MAX`); oversized files are unverified findings. The marker regex is
-`regex` (linear time). Tree-sitter parsing runs under a progress-callback budget
-(`ParseTimeout`), and `SymbolTable` construction caps at 100k declarations per file, discarding
-the table and reporting `SymbolTableTruncated` rather than returning a partial one. No
-`with_capacity(n)` where `n` derives from file content. Config: `deny_unknown_fields`, enums for
-every fixed-choice field (`UnverifiedPolicy { Report, Error }`, `PathExpectation`, `ScanMode`,
-never a bool), collection caps validated right after deserialization, `~` expansion only on
-`[roots]` values.
+**Input bounds** (items 14, 16, 19) — `AnchorId`, `RootName`,
+@ref[crates/anchr-core/src/marker/symbol.rs#SymbolName], and
+@ref[crates/anchr-core/src/marker/path.rs#RelPath] are allowlist-parsed newtypes with private fields
+and length caps (ID ≤ 256 bytes, segment ≤ 64, path ≤ 1024). File size is checked from metadata
+before reading (`max-file-bytes`, default 2 MiB, validated ≤ `u32::MAX`); oversized files are
+unverified findings. The marker regex is `regex` (linear time). Tree-sitter parsing runs under a
+progress-callback budget (`ParseTimeout`), and `SymbolTable` construction caps at 100k declarations
+per file, discarding the table and reporting `SymbolTableTruncated` rather than returning a partial
+one. No `with_capacity(n)` where `n` derives from file content. Config: `deny_unknown_fields`, enums
+for every fixed-choice field (`UnverifiedPolicy { Report, Error }`,
+@ref[crates/anchr-core/src/marker/path.rs#PathExpectation],
+@ref[crates/anchr-core/src/scan.rs#ScanMode], never a bool), collection caps validated right after
+deserialization, `~` expansion only on `[roots]` values.
 
 **Integer handling** (item 15) — all offsets are `usize` internally; conversion to `u32` for JSON
-and LSP goes through `u32::try_from` and a `PositionOverflow` error. `&str` slicing at
-file-derived offsets uses `get(..)`, never `[..]`, because a tree-sitter or pulldown offset that
-lands mid-codepoint would otherwise panic.
+and LSP goes through `u32::try_from` and a @ref[crates/anchr-core/src/span.rs#PositionOverflow]
+error. `&str` slicing at file-derived offsets uses `get(..)`, never `[..]`, because a tree-sitter or
+pulldown offset that lands mid-codepoint would otherwise panic.
 
 **No shell, bounded output** (items 18, 21) — no `std::process::Command` anywhere in milestone 1:
 git toplevel detection walks up for a `.git` entry instead of invoking `git`. JSON output
@@ -708,7 +729,7 @@ scan already selected (a `.env` is not a scanned container), and only for the fi
 each diagnostic.
 
 **Supply chain** (item 3) — grammar crates compile C in `build.rs`, so each is vetted (repo,
-maintainer, download count) before adding; `deny.toml` per the site's template with
+maintainer, download count) before adding; @ref[deny.toml] per the site's template with
 `unknown-git = "deny"`, `wildcards = "deny"`, license allowlist MIT/Apache-2.0/BSD-3/ISC/
 Unicode-3.0; `Cargo.lock` committed; CI builds with `--locked`; `cargo audit` + `cargo deny check`
 on every PR; `cargo geiger` run once to record the unsafe budget the tree-sitter stack brings in.
@@ -729,7 +750,7 @@ are rejected at read time.
 
 ## 11. Build order
 
-The version labels in `DESIGN.md` §10 are milestones, not releases: everything below is built in
+The version labels in @ref[#design/scope] are milestones, not releases: everything below is built in
 succession before the first public release, so the core is designed for the final shape from
 step 1 (the `Index` update/remove API, the DTO-decoupled JSON schema, and the `LanguageSpec`
 table all exist because steps 9–11 need them).
@@ -778,8 +799,8 @@ disturbing the rest.
 2. **No persistent index in v1** — see §3.4; survey independently reached the same conclusion.
 3. **`root:` prefix allowed on all target kinds**, not only `#id` — see §2.
 4. **Human renderer is annotate-snippets**, so the report is rustc-shaped (one snippet + site
-   list) rather than the pure `path:line` list sketched in `DESIGN.md` §6.
-5. **npm channel conflict.** `DISTRIBUTION.md` §4 requires the esbuild-style
+   list) rather than the pure `path:line` list sketched in @ref[#design/diagnostics].
+5. **npm channel conflict.** @ref[#dist/channels] requires the esbuild-style
    `optionalDependencies` platform-package layout and explicitly rejects a postinstall download
    shim. cargo-dist 0.32's npm installer *is* a download shim (one package, fetches the archive
    from GitHub Releases at install time). Options: (a) ship the shim in v1 and revisit; (b) write
@@ -812,35 +833,45 @@ Refinements the code made to the design above, recorded so the document stays th
    and raw comment nodes, minus link destinations and fences. Identifiers in code spans are
    placed via a symbol index over every scanned source file: one declaring file ⇒ proposal,
    several ⇒ ambiguous, none ⇒ ignored. Path tokens must end in a segment containing a letter.
-7. **`Workspace`** (`check.rs`) owns the registry, the indexed roots, and scan findings; `check`,
-   `backrefs`, `rename`, `coverage`, and the LSP all run against it. `Workspace::update_file`
-   re-lexes one document from editor text for the LSP.
+7. **`Workspace`** (@ref[crates/anchr-core/src/check.rs#Workspace]) owns the registry, the indexed
+   roots, and scan findings; `check`, `backrefs`, `rename`, `coverage`, and the LSP all run against
+   it. `Workspace::update_file` re-lexes one document from editor text for the LSP.
 8. **LSP stack**: `lsp-server` + `ls-types`, synchronous, `catch_unwind` per message, full
    document sync, UTF-8 positions when the client offers them. The connection is dropped before
    the stdio threads are joined; the writer thread does not exit otherwise.
-9. **npm**: `scripts/npm/build-packages.mjs` builds `@context-anchors/<os>-<cpu>` packages
+9. **npm**: @ref[scripts/npm/build-packages.mjs] builds `@context-anchors/<os>-<cpu>` packages
    (static musl on Linux) plus the `context-anchors` shim from cargo-dist's manifest, published
-   by `publish-npm.yml` as a dist custom publish job.
+   by @ref[.github/workflows/publish-npm.yml] as a dist custom publish job.
 10. **A narrow `catch_unwind` guards pulldown-cmark.** Fuzzing found that its offset iterator
     panics on some malformed documents (pulldown-cmark/pulldown-cmark#1129, open upstream).
     §10's rule against catching panics around per-file work still holds for our own code: the
     catch wraps only the third-party iteration and turns a panic into
     `AnalyzeError::ParserPanicked`, reported as an unverified skipped file. The fuzz target
     restores the default panic hook so the catch is exercised under fuzzing too.
-11. **Milestone 3 is not started.** `review`/`accept`, exported anchors, and MCP need their own
+11. **Names that differ from the body above.** `AnalyzeError` is the design's `ContainerError`.
+    There is no `NoSymbolQuery`: every registered language ships a declaration query. The
+    per-run directory cache is a private `Listing` in @ref[crates/anchr-core/src/resolve/path.rs],
+    not a `DirectoryListingCache`. Skipped files are one `DiagnosticKind::FileSkipped` carrying a
+    `SkipReason` rather than `FileNotUtf8`/`FileTooLarge`, and `Unresolved` gained
+    `PathNotDirectory`/`PathNotFile` for the trailing-slash rule. Module layout: `marker/` is
+    split into `id`, `path`, `symbol`, and `target`; plaintext regions live in
+    @ref[crates/anchr-core/src/text/mod.rs]; anchors resolve inside `resolve/mod.rs`; `edit.rs`,
+    `rename.rs`, and `coverage.rs` are new. The section headings above point at the real modules.
+12. **Milestone 3 is not started.** `review`/`accept`, exported anchors, and MCP need their own
     code-level design before implementation.
 
 ## 13. Research appendix
 
-The research this design rests on lives in `docs/research/`:
+The research this design rests on lives in @ref[docs/research/]:
 
-- `rust-security-best-practices-digest.md` — corgea checklist (25 items) with a mapping onto a
-  filesystem-walking, tree-sitter, TOML-config, JSON-emitting CLI. §10 is derived from it.
-- `crate-survey.md` — 15 areas, versions verified on crates.io 2026-09-04, API sketches, gotchas.
-  §6 is derived from it.
-- `code-design-review.md` — 25 findings against the draft of this document, all incorporated.
-  The three blockers were: include globs as `ignore` overrides bypassing `.gitignore`, false
-  `SymbolMissing` on error-bearing parse trees, and case-insensitive path resolution making
+- @ref[docs/research/rust-security-best-practices-digest.md] — corgea checklist (25 items) with a
+  mapping onto a filesystem-walking, tree-sitter, TOML-config, JSON-emitting CLI. §10 is derived
+  from it.
+- @ref[docs/research/crate-survey.md] — 15 areas, versions verified on crates.io 2026-09-04, API
+  sketches, gotchas. §6 is derived from it.
+- @ref[docs/research/code-design-review.md] — 25 findings against the draft of this document, all
+  incorporated. The three blockers were: include globs as `ignore` overrides bypassing `.gitignore`,
+  false `SymbolMissing` on error-bearing parse trees, and case-insensitive path resolution making
   `check` platform-dependent.
 
 Survey caveats to verify during implementation: compiled grammar sizes are estimates; `ignore`

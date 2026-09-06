@@ -1,12 +1,13 @@
 # Distribution
 
 **Status:** design draft
-**Companion to:** `DESIGN.md` — that document covers what the tool is; this one covers how it
+**Companion to:** @ref[DESIGN.md] — that document covers what the tool is; this one covers how it
 ships.
 
 ---
 
 ## 1. Name — settled
+<!-- @anchor[dist/name] -->
 
 | Role | Name |
 |---|---|
@@ -23,7 +24,7 @@ similarly blocked on npm. Roughly 45 candidates were checked; nearly every short
 — is squatted on npm, which is why the viable space is compounds.
 
 `anchorlint` was free but rejected on principle: "lint" contradicts the check-versus-lint
-distinction in `DESIGN.md` §9, and the name should not undercut the design.
+distinction in @ref[#design/deferred], and the name should not undercut the design.
 
 **Remaining actions:**
 
@@ -62,6 +63,7 @@ Only the binary is a packaging problem in the conventional sense.
 ---
 
 ## 3. Release tooling: cargo-dist
+<!-- @anchor[dist/cargo-dist] -->
 
 [cargo-dist](https://github.com/axodotdev/cargo-dist) is the spine. Verified healthy — v0.32.0
 released 2026-05-21, actively maintained.
@@ -80,6 +82,7 @@ This is weeks of work not done. Configure it before the first release rather tha
 ---
 
 ## 4. Channels
+<!-- @anchor[dist/channels] -->
 
 ### Shipping in v1
 
@@ -182,6 +185,7 @@ replace a hook. Pull it forward only if cross-vendor reach is a v1 goal rather t
 ---
 
 ## 6. Decisions that affect implementation, not just release
+<!-- @anchor[dist/implementation-decisions] -->
 
 **Ship the LSP as a subcommand, not a second binary.** `anchr lsp` over stdio. One artifact,
 half the distribution surface. rust-analyzer, biome, and ruff all do this.
@@ -194,9 +198,9 @@ Recommendation: bundle a core set — TypeScript/JavaScript, Python, Rust, Go, p
 treat the remainder as either a separate "full" build or dynamically loaded. Decide early;
 unbundling later is painful.
 
-This interacts directly with the **unverified** diagnostic class in `DESIGN.md` §6: "no grammar
-for `.ex`" becomes a packaging decision rather than a permanent limitation, and the diagnostic
-should be worded so that it points at the fix.
+This interacts directly with the **unverified** diagnostic class in @ref[#design/diagnostics]: "no
+grammar for `.ex`" becomes a packaging decision rather than a permanent limitation, and the
+diagnostic should be worded so that it points at the fix.
 
 ---
 

@@ -1,5 +1,6 @@
-//! Spike tests pinning third-party behaviour the scan design depends on (CODE_DESIGN.md §3.3,
-//! §10). If one of these fails after a dependency bump, the scan stage's assumptions changed.
+//! Spike tests pinning third-party behaviour the scan design depends on (@ref[#code/scan],
+//! @ref[#code/security]). If one of these fails after a dependency bump, the scan stage's
+//! assumptions changed.
 #![allow(clippy::unwrap_used, clippy::expect_used)]
 
 use std::fs;
