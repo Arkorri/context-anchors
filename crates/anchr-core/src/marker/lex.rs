@@ -3,19 +3,21 @@ use std::sync::LazyLock;
 use regex::Regex;
 
 use super::{
-    AnchorId, MalformedMarker, MalformedReason, Marker, MarkerKind, MarkerPayload, parse_target,
+    Alias, AnchorId, MalformedMarker, MalformedReason, Marker, MarkerKind, MarkerPayload,
+    parse_target,
 };
 use crate::span::ByteSpan;
 use crate::text::{TextRegion, TextRegions};
 
-/// Group 1: the kind. Group 2: the body, absent when the opener has no `]` on its line.
-/// `[` is excluded from the body so one unclosed opener cannot swallow the next marker.
+/// Group 1: the kind, empty for an alias use `@[...]`. Group 2: the body, absent when the
+/// opener has no `]` on its line. `[` is excluded from the body so one unclosed opener cannot
+/// swallow the next marker.
 static MARKER: LazyLock<Regex> = LazyLock::new(|| {
     #[expect(
         clippy::expect_used,
         reason = "the pattern is a literal, checked by tests"
     )]
-    Regex::new(r"@(anchor|ref)\[(?:([^\[\]\n]*)\]|)").expect("marker regex is a valid literal")
+    Regex::new(r"@(anchor|ref|)\[(?:([^\[\]\n]*)\]|)").expect("marker regex is a valid literal")
 });
 
 #[derive(Debug, Clone, PartialEq, Eq, Default)]
@@ -56,7 +58,8 @@ fn lex_region(source: &str, region: &TextRegion, lexed: &mut Lexed) -> Result<()
         }
         let kind = match captures.get(1).map(|m| m.as_str()) {
             Some("anchor") => MarkerKind::Anchor,
-            _ => MarkerKind::Ref,
+            Some("ref") => MarkerKind::Ref,
+            _ => MarkerKind::Use,
         };
         match captures.get(2) {
             None => lexed.malformed.push(MalformedMarker {
@@ -118,8 +121,17 @@ fn parse_body(
                 id_span: parsed
                     .id_span
                     .map(|relative| relative.shifted_by(body_span.start)),
+                alias: parsed
+                    .alias
+                    .map(|declared| declared.shifted_by(body_span.start)),
             })
             .map_err(|reason| MalformedReason::InvalidTarget {
+                raw: body.to_owned(),
+                reason,
+            }),
+        MarkerKind::Use => Alias::parse(body)
+            .map(|alias| MarkerPayload::Use { alias })
+            .map_err(|reason| MalformedReason::InvalidAlias {
                 raw: body.to_owned(),
                 reason,
             }),
@@ -157,7 +169,10 @@ mod tests {
 
         let reference = &lexed.markers[1];
         assert_eq!(slice(source, reference.span), "@ref[#auth/flow]");
-        let MarkerPayload::Ref { target, id_span } = &reference.payload else {
+        let MarkerPayload::Ref {
+            target, id_span, ..
+        } = &reference.payload
+        else {
             panic!("expected a ref");
         };
         assert!(matches!(target, RefTarget::Anchor { root: None, .. }));
@@ -197,7 +212,7 @@ mod tests {
         assert!(matches!(
             reasons[2],
             MalformedReason::InvalidTarget {
-                reason: TargetError::Path(_),
+                reason: TargetError::BadAliasClause,
                 ..
             }
         ));
@@ -256,6 +271,86 @@ mod tests {
     }
 
     #[test]
+    fn finds_alias_declarations_and_uses_with_exact_spans() {
+        let source = "@ref[#auth/flow as Flow] then @[Flow].";
+        let lexed = lex_all(source);
+        assert!(lexed.malformed.is_empty());
+        assert_eq!(lexed.markers.len(), 2);
+
+        let MarkerPayload::Ref {
+            id_span,
+            alias: Some(declared),
+            ..
+        } = &lexed.markers[0].payload
+        else {
+            panic!("expected an aliased ref");
+        };
+        assert_eq!(slice(source, id_span.unwrap()), "auth/flow");
+        assert_eq!(slice(source, declared.span), "Flow");
+        assert_eq!(declared.alias.as_str(), "Flow");
+
+        let use_site = &lexed.markers[1];
+        assert_eq!(use_site.kind(), MarkerKind::Use);
+        assert_eq!(slice(source, use_site.span), "@[Flow]");
+        assert_eq!(slice(source, use_site.body_span), "Flow");
+        assert!(
+            matches!(&use_site.payload, MarkerPayload::Use { alias } if alias.as_str() == "Flow")
+        );
+    }
+
+    #[test]
+    fn reports_malformed_uses_by_reason() {
+        let empty = lex_all("@[]");
+        assert_eq!(empty.malformed[0].kind, MarkerKind::Use);
+        assert!(matches!(
+            empty.malformed[0].reason,
+            MalformedReason::EmptyBody
+        ));
+
+        let padded = lex_all("@[ X ]");
+        assert!(matches!(
+            padded.malformed[0].reason,
+            MalformedReason::InvalidAlias { .. }
+        ));
+
+        let unclosed = lex_all("@[X");
+        assert!(matches!(
+            unclosed.malformed[0].reason,
+            MalformedReason::Unclosed
+        ));
+        assert_eq!(unclosed.malformed[0].kind, MarkerKind::Use);
+
+        let nested = lex_all("@[@[Y]]");
+        assert_eq!(nested.malformed.len(), 1);
+        assert!(matches!(
+            nested.malformed[0].reason,
+            MalformedReason::Unclosed
+        ));
+        assert_eq!(nested.markers.len(), 1);
+        assert_eq!(nested.markers[0].kind(), MarkerKind::Use);
+    }
+
+    #[test]
+    fn a_use_that_is_glued_escaped_or_misspelled_is_not_a_marker() {
+        assert!(lex_all("a@[X]").markers.is_empty());
+        assert!(lex_all(r"\@[X]").markers.is_empty());
+        assert!(lex_all(r"\@[X]").malformed.is_empty());
+        assert_eq!(lex_all("(@[X])").markers.len(), 1);
+        for source in ["@reference[x.md]", "@anchors[x]", "@Ref[x.md]"] {
+            let lexed = lex_all(source);
+            assert!(lexed.markers.is_empty(), "{source}");
+            assert!(lexed.malformed.is_empty(), "{source}");
+        }
+    }
+
+    #[test]
+    fn uses_and_declarations_survive_crlf() {
+        let lexed = lex_all("@[A]\r\n@ref[#a as A]\r\n");
+        assert_eq!(lexed.markers.len(), 2);
+        assert!(lexed.malformed.is_empty());
+    }
+
+    #[test]
     fn a_region_off_a_char_boundary_is_an_error_not_a_panic() {
         let source = "é@ref[x]";
         let regions = TextRegions::new(vec![TextRegion {
@@ -273,6 +368,12 @@ mod tests {
             "[A-Za-z0-9_][A-Za-z0-9_.-]{0,10}".prop_map(|id| format!("@anchor[{id}]")),
             "[A-Za-z0-9_][A-Za-z0-9_.-]{0,10}".prop_map(|id| format!("@ref[#{id}]")),
             "[a-z]{1,8}(/[a-z]{1,8}){0,3}\\.[a-z]{1,3}".prop_map(|p| format!("@ref[{p}]")),
+            "[A-Za-z_][A-Za-z0-9_]{0,10}".prop_map(|alias| format!("@[{alias}]")),
+            (
+                "[A-Za-z0-9_][A-Za-z0-9_.-]{0,10}",
+                "[A-Za-z_][A-Za-z0-9_]{0,10}"
+            )
+                .prop_map(|(id, alias)| format!("@ref[#{id} as {alias}]")),
         ]
     }
 
@@ -309,7 +410,7 @@ mod tests {
         }
 
         #[test]
-        fn text_without_an_opener_yields_nothing(source in "[^@]{0,64}|@[^ar][^\\[]{0,32}") {
+        fn text_without_an_opener_yields_nothing(source in "[^@]{0,64}|@[^ar\\[][^\\[]{0,32}") {
             let lexed = lex_all(&source);
             prop_assert!(lexed.markers.is_empty());
             prop_assert!(lexed.malformed.is_empty());

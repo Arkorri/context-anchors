@@ -144,12 +144,14 @@ impl Index {
                 .markers
                 .iter()
                 .filter_map(move |marker| match &marker.payload {
-                    MarkerPayload::Ref { target, id_span } => Some(RefSite {
+                    MarkerPayload::Ref {
+                        target, id_span, ..
+                    } => Some(RefSite {
                         target,
                         id_span: *id_span,
                         site: site(root, path, marker.span, marker.region),
                     }),
-                    MarkerPayload::Anchor { .. } => None,
+                    MarkerPayload::Anchor { .. } | MarkerPayload::Use { .. } => None,
                 })
         })
     }
@@ -176,7 +178,7 @@ impl Index {
                         id_span: marker.body_span,
                         site: site(root, path, marker.span, marker.region),
                     }),
-                    MarkerPayload::Ref { .. } => None,
+                    MarkerPayload::Ref { .. } | MarkerPayload::Use { .. } => None,
                 })
         })
     }

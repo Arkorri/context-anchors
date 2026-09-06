@@ -1,6 +1,6 @@
 #![no_main]
 
-use anchr_core::marker::lex;
+use anchr_core::marker::{MarkerPayload, lex};
 use anchr_core::text::{RegionKind, TextRegions};
 use libfuzzer_sys::fuzz_target;
 
@@ -11,6 +11,13 @@ fuzz_target!(|data: &[u8]| {
         for marker in &lexed.markers {
             assert!(text.get(marker.span.start..marker.span.end).is_some());
             assert!(text.get(marker.body_span.start..marker.body_span.end).is_some());
+            if let MarkerPayload::Ref {
+                alias: Some(declared),
+                ..
+            } = &marker.payload
+            {
+                assert!(text.get(declared.span.start..declared.span.end).is_some());
+            }
         }
     }
 });
