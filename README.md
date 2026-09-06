@@ -10,6 +10,8 @@ Two opt-in markers make those references explicit and checkable:
 ```text
 @anchor[some-id]     declares a stable identity at this line
 @ref[target]         asserts that the target exists
+@ref[target as X]    the same, and names the target X for this file
+@[X]                 a use of that name; every mention is checked
 ```
 
 `anchr check` resolves every reference in a root and fails when one does not resolve, grouping
@@ -60,8 +62,9 @@ anchr lsp                  # language server for any LSP-capable editor
 ```
 
 The language server speaks stdio. Point your editor's generic LSP client at `anchr lsp` for
-Markdown and the supported source languages to get diagnostics, go-to-definition on
-`@ref[...]`, find-references and rename on anchors, and anchors as document symbols.
+Markdown and the supported source languages to get diagnostics, go-to-definition on `@ref[...]`
+and `@[...]`, find-references and rename on anchors and aliases, and anchors and alias
+declarations as document symbols.
 
 Targets a reference can name:
 
@@ -72,6 +75,15 @@ Targets a reference can name:
 | `src/file.ts#Name` | a declaration named `Name` exists in that file (Rust, TypeScript, JavaScript, Python, Go) |
 | `#some-id` | an anchor with that id exists in this root |
 | `claude:#some-id` | an anchor exists in the external root named `claude` |
+
+A file that mentions one target many times declares it once and uses a short local name:
+
+```markdown
+<!-- refs -->
+@ref[src/file.ts#Name as Name]
+
+@[Name] is checked at every mention; renaming it in code is one edit per file.
+```
 
 Markers are recognised in Markdown prose (outside code fences and inline code), in source code
 comments (outside backtick spans), and in `.txt` files. Configuration lives in @ref[anchr.toml];

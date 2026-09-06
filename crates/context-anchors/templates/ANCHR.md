@@ -9,6 +9,8 @@ that still uses the old name.
 ```text
 @anchor[some-id]        declares a stable identity at this line
 @ref[target]            asserts that the target exists
+@ref[target as Alias]   the same, and names the target Alias within this file
+@[Alias]                a use of that name; checked through its declaration
 ```
 
 Markers are recognised in Markdown prose (not inside code fences or inline code), in source
@@ -37,6 +39,28 @@ Rules:
   The check asks "does a declaration with this name exist anywhere in this file?".
 - A `root:` prefix works on every target form.
 
+## Aliases
+
+When a file mentions one target many times, declare it once and use the name everywhere:
+
+```markdown
+<!-- refs -->
+@ref[src/auth.ts#validateToken as ValidateToken]
+@ref[#auth/flow as AuthFlow]
+
+@[ValidateToken] runs first; @[AuthFlow] describes what happens next.
+```
+
+- Aliases are file-scoped: declare in each file that uses them. Put the declarations in an
+  index block at the top of the file, under `<!-- refs -->`, like imports.
+- An alias is an identifier: letters, digits, `_`, starting with a letter or `_`.
+- A use with no declaration in the file is an error; so is declaring one alias twice in a file.
+  An alias that is declared and never used shows up in `anchr coverage`.
+- If a target breaks, the error is reported at the declaration, once. Fix that line; the uses
+  keep their name.
+- Name the thing the way this document talks about it. The alias does not have to match the
+  code's spelling, so a rename in code is one edit per file.
+
 ## When editing
 
 - Renaming or moving a file, function, or type, or changing an anchor id, breaks every
@@ -59,6 +83,7 @@ anchr rename old-id new-id     rewrite an anchor id and every reference to it (-
 anchr coverage                 reference-shaped strings with no marker; never fails
 anchr annotate [--write]       propose (or apply) @ref markers where the target resolves
 anchr lsp                      language server: diagnostics, go-to-definition, references, rename
+                               (anchors and aliases)
 ```
 
 Exit codes: 0 clean, 1 broken references, 2 the tool could not run (bad config).

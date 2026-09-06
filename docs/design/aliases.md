@@ -1,6 +1,6 @@
 # Alias imports — file-scoped names for references
 
-**Status:** designed; implementation staged as one PR per item of §7. Companion to
+**Status:** implemented; §7 lists the stages as they were built. Companion to
 @ref[DESIGN.md] (the guarantee) and @ref[CODE_DESIGN.md] (the pipeline this extends).
 
 ## 1. Problem
