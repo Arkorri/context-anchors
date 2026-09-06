@@ -27,6 +27,15 @@ jobs:
       - run: cargo clippy --workspace --all-targets --all-features --locked
       - run: cargo test --workspace --locked --no-fail-fast
 
+  dogfood:
+    name: anchr checks its own docs
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+      - run: cargo run --locked --bin anchr -- check --strict --color never
+
   msrv:
     name: build on MSRV
     runs-on: ubuntu-latest
@@ -44,3 +53,19 @@ jobs:
       - uses: EmbarkStudios/cargo-deny-action@v2
         with:
           command: check
+
+  fuzz:
+    name: fuzz smoke (${{ matrix.target }})
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        target: [parse-target, lex, markdown-regions, source-regions, config]
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@nightly
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: fuzz
+      - run: cargo install cargo-fuzz --locked
+      - run: cargo +nightly fuzz run ${{ matrix.target }} -- -max_total_time=60

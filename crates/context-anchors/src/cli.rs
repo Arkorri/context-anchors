@@ -17,6 +17,8 @@ pub struct Cli {
 pub enum Command {
     /// Resolve every reference in the current root and report what does not resolve.
     Check(CheckArgs),
+    /// Write an `anchr.toml`, the marker guide for agents, and optional editor hooks.
+    Init(InitArgs),
     /// Print a shell completion script.
     Completions(CompletionsArgs),
 }
@@ -42,6 +44,25 @@ pub struct CheckArgs {
 }
 
 #[derive(Debug, Args)]
+pub struct InitArgs {
+    /// Directory to initialize (default: the current directory).
+    #[arg(long, value_name = "DIR")]
+    pub root: Option<Utf8PathBuf>,
+
+    /// Which agent integration to write besides `anchr.toml`.
+    #[arg(long, value_enum, default_value_t = Agent::AgentsMd)]
+    pub agent: Agent,
+
+    /// Overwrite files that already exist with different contents.
+    #[arg(long)]
+    pub force: bool,
+
+    /// Print what would be written without writing anything.
+    #[arg(long)]
+    pub dry_run: bool,
+}
+
+#[derive(Debug, Args)]
 pub struct CompletionsArgs {
     pub shell: clap_complete::Shell,
 }
@@ -57,6 +78,14 @@ pub enum Color {
     Auto,
     Always,
     Never,
+}
+
+/// `AgentsMd` writes the guide agents read; `Claude` also wires a Claude Code hook.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, ValueEnum)]
+pub enum Agent {
+    Claude,
+    AgentsMd,
+    None,
 }
 
 impl From<Color> for anstream::ColorChoice {

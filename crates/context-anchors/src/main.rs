@@ -17,6 +17,7 @@ fn main() -> ExitCode {
     let cli = Cli::parse();
     let outcome = match cli.command {
         Command::Check(args) => commands::check::run(&args),
+        Command::Init(args) => commands::init::run(&args),
         Command::Completions(args) => commands::completions::run(&args),
     };
     match outcome {

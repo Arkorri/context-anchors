@@ -220,7 +220,10 @@ with marker brackets).
 **Source** — `tree-sitter` 0.27. Parse with the registered `Language`, then run the language's
 compiled comment query (`[(line_comment) (block_comment)] @comment` for Rust, `(comment) @comment`
 for JS/TS/Python/Go) with `QueryCursor` and take each capture's `byte_range()`. Region kind
-`Comment`. Using the same query mechanism as symbol lookup (§3.5) means one API for both jobs.
+`Comment`. Same-line backtick spans inside a comment are carved out: doc comments are
+markdown by convention, so `` `@ref[x]` `` in one is an example, exactly as in prose (this is
+what lets this repository's own doc comments describe the grammar and still pass `anchr
+check`). Using the same query mechanism as symbol lookup (§3.5) means one API for both jobs.
 Parse errors from tree-sitter do not fail the file: comments still extract from an
 error-tolerant tree. A file whose extension has no registered language is not a source
 container at all (see registry below). `Parser` is `!Sync`, so one lives per walker thread

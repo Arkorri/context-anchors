@@ -40,19 +40,52 @@ impl SymbolTable {
     }
 }
 
+/// Comment nodes, minus backtick-delimited spans inside them: doc comments are markdown by
+/// convention, and `` `@ref[x]` `` in one is an example, not a reference.
 pub(crate) fn comment_regions(spec: &LanguageSpec, tree: &Tree, source: &str) -> TextRegions {
     let mut cursor = QueryCursor::new();
     let mut matches = cursor.matches(spec.comment_query(), tree.root_node(), source.as_bytes());
     let mut regions = Vec::new();
     while let Some(found) = matches.next() {
         for capture in found.captures() {
-            regions.push(TextRegion {
-                span: ByteSpan::from(capture.node.byte_range()),
-                kind: RegionKind::Comment,
-            });
+            let span = ByteSpan::from(capture.node.byte_range());
+            if let Some(text) = source.get(span.start..span.end) {
+                regions.extend(outside_inline_code(text).map(|piece| TextRegion {
+                    span: piece.shifted_by(span.start),
+                    kind: RegionKind::Comment,
+                }));
+            }
         }
     }
     TextRegions::new(regions)
+}
+
+/// The parts of `text` not inside a same-line span delimited by equal runs of backticks.
+fn outside_inline_code(text: &str) -> impl Iterator<Item = ByteSpan> + '_ {
+    let mut pieces = Vec::new();
+    let mut cursor = 0;
+    for line in text.split_inclusive('\n') {
+        let line_start = cursor;
+        cursor += line.len();
+        let mut rest = 0;
+        while let Some(open_at) = line[rest..].find('`') {
+            let open = rest + open_at;
+            let run = line[open..].bytes().take_while(|b| *b == b'`').count();
+            let fence = &line[open..open + run];
+            match line[open + run..].find(fence) {
+                Some(close_at) => {
+                    let close = open + run + close_at + run;
+                    pieces.push(ByteSpan::new(line_start + rest, line_start + open));
+                    rest = close;
+                }
+                None => {
+                    rest = open + run;
+                }
+            }
+        }
+        pieces.push(ByteSpan::new(line_start + rest, line_start + line.len()));
+    }
+    pieces.into_iter().filter(|piece| !piece.is_empty())
 }
 
 /// Runs the declaration query and keeps the `@name` of every match that also carries a
@@ -159,6 +192,16 @@ mod tests {
         assert_eq!(
             comment_marker_bodies(&registry, "rs", source),
             vec!["#crate", "a.rs#f", "b", "c"]
+        );
+    }
+
+    #[test]
+    fn inline_code_inside_comments_is_an_example_not_a_reference() {
+        let registry = LanguageRegistry::new().unwrap();
+        let source = "//! Write `@ref[example.md]` to refer; see @ref[#real] and ``@ref[`x`]`` too.\n// unbalanced ` @ref[#also-real]\nfn f() {}\n";
+        assert_eq!(
+            comment_marker_bodies(&registry, "rs", source),
+            vec!["#real", "#also-real"]
         );
     }
 

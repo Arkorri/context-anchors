@@ -1,0 +1,50 @@
+[package]
+name = "anchr-fuzz"
+version = "0.0.0"
+publish = false
+edition = "2024"
+
+[package.metadata]
+cargo-fuzz = true
+
+[workspace]
+
+[dependencies]
+libfuzzer-sys = "0.4"
+anchr-core = { path = "../crates/anchr-core" }
+camino = "1.2"
+
+[[bin]]
+name = "parse-target"
+path = "fuzz_targets/parse_target.rs"
+test = false
+doc = false
+bench = false
+
+[[bin]]
+name = "lex"
+path = "fuzz_targets/lex.rs"
+test = false
+doc = false
+bench = false
+
+[[bin]]
+name = "markdown-regions"
+path = "fuzz_targets/markdown_regions.rs"
+test = false
+doc = false
+bench = false
+
+[[bin]]
+name = "source-regions"
+path = "fuzz_targets/source_regions.rs"
+test = false
+doc = false
+bench = false
+
+[[bin]]
+name = "config"
+path = "fuzz_targets/config.rs"
+test = false
+doc = false
+bench = false
