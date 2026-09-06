@@ -51,7 +51,7 @@ fn lex_region(source: &str, region: &TextRegion, lexed: &mut Lexed) -> Result<()
             .get(0)
             .map(|m| ByteSpan::from(m.range()).shifted_by(span.start));
         let Some(whole) = whole else { continue };
-        if is_glued_to_a_word(source, whole.start) {
+        if is_glued_or_escaped(source, whole.start) {
             continue;
         }
         let kind = match captures.get(1).map(|m| m.as_str()) {
@@ -87,13 +87,14 @@ fn lex_region(source: &str, region: &TextRegion, lexed: &mut Lexed) -> Result<()
     Ok(())
 }
 
-/// `foo@ref[x]` inside an email-like token is not a marker. Checks the preceding character,
-/// not byte, so multi-byte letters behave like ASCII ones.
-fn is_glued_to_a_word(source: &str, start: usize) -> bool {
+/// `foo@ref[x]` inside an email-like token is not a marker, and `\@ref[x]` is an escaped
+/// example. Checks the preceding character, not byte, so multi-byte letters behave like
+/// ASCII ones.
+fn is_glued_or_escaped(source: &str, start: usize) -> bool {
     source[..start]
         .chars()
         .next_back()
-        .is_some_and(|ch| ch.is_alphanumeric() || ch == '_')
+        .is_some_and(|ch| ch.is_alphanumeric() || ch == '_' || ch == '\\')
 }
 
 fn parse_body(
@@ -226,9 +227,11 @@ mod tests {
     }
 
     #[test]
-    fn markdown_escaped_brackets_are_not_lexed() {
+    fn either_escape_form_suppresses_the_marker() {
         assert!(lex_all(r"@ref\[x.md\]").markers.is_empty());
         assert_eq!(lex_all(r"@ref\[x.md\]").malformed.len(), 0);
+        assert!(lex_all(r"\@ref[x.md]").markers.is_empty());
+        assert!(lex_all(r"\@anchor[x]").markers.is_empty());
     }
 
     #[test]
