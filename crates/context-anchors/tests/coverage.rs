@@ -259,3 +259,77 @@ fn annotate_only_writes_with_the_flag_and_the_result_passes_check() {
             "3 of 4 reference-shaped strings are annotated",
         ));
 }
+
+#[test]
+fn directory_globs_are_proposed_as_directories_and_annotate_writes_them() {
+    let fixture = Fixture::new(&[
+        ("README.md", "Sources live in `src/*`; docs in docs/.\n"),
+        ("src/lib.rs", ""),
+        ("docs/a.md", ""),
+    ]);
+    fixture
+        .anchr()
+        .args(["coverage", "--color", "never"])
+        .assert()
+        .code(0)
+        .stdout(predicate::str::contains(
+            "README.md:1:17: `src/*` — could be @ref[src/]",
+        ))
+        .stdout(predicate::str::contains("docs/ — could be @ref[docs/]"));
+
+    let output = fixture
+        .anchr()
+        .args(["coverage", "--format", "json"])
+        .output()
+        .unwrap();
+    let json: serde_json::Value = serde_json::from_slice(&output.stdout).unwrap();
+    let candidates = json["candidates"].as_array().unwrap();
+    assert_eq!(candidates.len(), 2);
+    assert_eq!(candidates[0]["text"], "`src/*`");
+    assert_eq!(candidates[0]["replacement"], "@ref[src/]");
+
+    fixture
+        .anchr()
+        .args(["annotate", "--write", "--color", "never"])
+        .assert()
+        .code(0)
+        .stdout(predicate::str::contains("annotated 2 references"));
+    assert_eq!(
+        fixture.read("README.md"),
+        "Sources live in @ref[src/]; docs in @ref[docs/].\n"
+    );
+    fixture
+        .anchr()
+        .args(["check", "--color", "never"])
+        .assert()
+        .code(0);
+}
+
+#[test]
+fn prose_word_pairs_are_not_reference_shaped() {
+    let fixture = Fixture::new(&[(
+        "README.md",
+        "Reports line/col; licensed Apache-2.0/MIT, e.g. since 1.x, i.e. never `struct/class`.\n",
+    )]);
+    let output = fixture
+        .anchr()
+        .args(["coverage", "--format", "json"])
+        .output()
+        .unwrap();
+    assert_eq!(output.status.code(), Some(0));
+    let json: serde_json::Value = serde_json::from_slice(&output.stdout).unwrap();
+    assert_eq!(json["summary"]["total"], 0);
+    assert_eq!(json["candidates"].as_array().unwrap().len(), 0);
+    for key in [
+        "annotated_refs",
+        "total",
+        "proposals",
+        "unresolvable",
+        "ambiguous",
+        "unused_aliases",
+        "ignored",
+        "unused_ignores",
+    ] {
+        assert!(json["summary"].get(key).is_some(), "{key}");
+    }
+}

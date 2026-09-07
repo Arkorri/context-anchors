@@ -11,7 +11,7 @@ remaining coverage candidates visible) and @ref[CODE_DESIGN.md] (the pipeline th
 @ref[crates/anchr-core/src/marker/noref.rs#NoRefEntry as NoRefEntry]
 @ref[crates/anchr-core/src/noref.rs#NoRefSet as NoRefSet]
 @ref[crates/anchr-core/src/config.rs#CoverageConfig as CoverageConfig]
-@noref[foo.ts, src/file.ts, line/col]
+@noref[foo.ts, src/file.ts]
 
 ## 1. Problem
 
@@ -23,10 +23,11 @@ templates and READMEs, and the product name used as a word. No tokenizer can tel
 from real misses. Only the author can, and the author had no way to say so, which meant the
 report never reached zero and stopped being read.
 
-The remaining third (`line/col` prose, short identifiers matched to the wrong declaration) is a
-classifier defect and is not what this design is for. The rule for authors: **if the tool guessed
-wrong, fix the tool; if it guessed right and you disagree, ignore it.** An ignore list that
-absorbs classifier bugs hides real mentions elsewhere.
+The remaining third was classifier defect, not ignore material: `line/col` prose read as a path
+(fixed since by the path-shape rule, @ref[CODE_DESIGN.md] §12a item 15) and short identifiers
+matched to the wrong declaration (still open). The rule for authors: **if the tool guessed wrong,
+fix the tool; if it guessed right and you disagree, ignore it.** An ignore list that absorbs
+classifier bugs hides real mentions elsewhere.
 
 ## 2. Two axes
 

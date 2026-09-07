@@ -20,7 +20,7 @@ an example without it being checked, put it in a code fence or inline code, or e
 `\@ref[...]` or `@ref\[...\]`.
 
 ## Targets
-<!-- @noref[src/, auth/token-refresh, file.rs] -->
+<!-- @noref[src/, file.rs] -->
 
 | Form | Meaning |
 |---|---|
@@ -74,6 +74,9 @@ say so once and the report stops asking:
 @noref[src/legacy/, example.ts]
 ```
 
+- Reference-shaped means a path ending in `/`, or `name.ext` where the extension is one GitHub
+  Linguist lists or a file in this repository carries. A glob such as `src/*` is proposed as
+  `src/`; prose like `line/col` or `e.g.` is never a candidate.
 - `@noref` is file-scoped, like an alias. For strings that are never references anywhere, use
   `ignore` under `[coverage]` in `anchr.toml`; `exclude` there keeps whole files checked but never
   proposes annotations in them.

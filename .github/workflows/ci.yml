@@ -36,6 +36,16 @@ jobs:
       - uses: Swatinem/rust-cache@v2
       - run: cargo run --locked --bin anchr -- check --strict --color never
 
+  linguist-table:
+    name: generated Linguist table is fresh
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+      - run: node scripts/linguist/gen-extensions.mjs --check
+
   msrv:
     name: build on MSRV
     runs-on: ubuntu-latest

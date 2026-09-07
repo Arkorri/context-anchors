@@ -12,7 +12,10 @@ exclude = ["target/**", "**/snapshots/**"]
 exclude = ["docs/research/**"]
 # Files that live in a user's repository, and the product's own name, are never references here.
 ignore = [
-  "CLAUDE.md", "AGENTS.md", "GEMINI.md", ".cursor/rules", "package.json", "build.rs",
+  "CLAUDE.md", "AGENTS.md", "GEMINI.md", "package.json", "build.rs",
   "CHANGELOG.md", ".claude-plugin/marketplace.json", "dist-manifest.json", ".claude/settings.json",
   "anchr", "anchr.toml",
+  # A registry, a file inside the tree-sitter grammars, and example paths under a `src/` this
+  # repository does not have.
+  "crates.io", "tags.scm", "src/",
 ]

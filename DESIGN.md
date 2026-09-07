@@ -182,6 +182,9 @@ exclude = ["docs/research/**"]      # still checked; never asked for more annota
 ignore  = ["CLAUDE.md", "AGENTS.md"] # never a reference anywhere in this root
 ```
 
+- Reference-shaped means a path ending in `/` (a glob tail such as `src/*` counts and is
+  proposed as the directory) or `name.ext` with an extension GitHub Linguist lists or a file in
+  the root carries. Prose slash pairs and version numbers are never candidates.
 - `@noref` is **file-scoped**, like an alias: the ignore travels with the text it protects.
   Config `ignore` is root-wide. Matching is exact, plus the path of a `path#Symbol` token and a
   trailing-`/` prefix; no globs.

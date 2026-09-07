@@ -88,7 +88,9 @@ A file that mentions one target many times declares it once and uses a short loc
 ```
 
 `@noref` lists strings that look like references in this file and are not, such as example paths;
-`anchr coverage` stops proposing them and reports any entry that no longer matches anything.
+`anchr coverage` stops proposing them and reports any entry that no longer matches anything. A
+string looks like a reference when it ends in `/` or is `name.ext` with an extension GitHub
+Linguist lists or a file in the repository carries; a glob such as `src/*` is proposed as `src/`.
 
 Markers are recognised in Markdown prose (outside code fences and inline code), in source code
 comments (outside backtick spans), and in `.txt` files. Configuration lives in @ref[anchr.toml];
@@ -103,7 +105,7 @@ comments (outside backtick spans), and in `.txt` files. Configuration lives in @
   file and used by a short local name
 - @ref[docs/design/ignores.md] — `@noref` and `[coverage] ignore`, for strings that look like
   references and are not
-- `docs/research/` — the crate survey, security checklist digest, and design review behind it
+- @ref[docs/research/] — the crate survey, security checklist digest, and design review behind it
 
 ## License
 
