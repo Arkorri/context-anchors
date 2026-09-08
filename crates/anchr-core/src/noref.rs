@@ -68,6 +68,9 @@ mod tests {
         assert!(matches("src/", "src/file.ts"));
         assert!(matches("src/", "src/file.ts#Name"));
         assert!(matches("src/", "src/deep/file.ts"));
+        assert!(matches("src/", "src/"));
+        assert!(matches("src/", "src/*"));
+        assert!(matches("src/", "src/**"));
 
         assert!(!matches("Name", "src/file.ts#Name"));
         assert!(!matches("src", "src/file.ts"));

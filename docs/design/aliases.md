@@ -184,7 +184,7 @@ as extra locations, and the language server attaches the use sites as related in
 Grouping is unchanged.
 
 **Unused.** A declared alias with zero uses is reported by `anchr coverage`
-(@ref[crates/anchr-core/src/coverage.rs]) as an advisory line and JSON candidate kind
+(@ref[crates/anchr-core/src/coverage/mod.rs]) as an advisory line and JSON candidate kind
 `unused-alias`. @[Check] never reports it: check's contract is soundness of what is asserted, and
 an unused import asserts nothing false.
 

@@ -1,5 +1,6 @@
 //! Walks one root in parallel and lexes every opted-in file.
 
+use std::collections::{BTreeSet, HashSet};
 use std::sync::mpsc;
 
 use camino::Utf8Path;
@@ -55,6 +56,9 @@ pub struct ScanOutput {
     pub files: Vec<ScannedFile>,
     pub skipped: Vec<SkippedFile>,
     pub problems: Vec<WalkProblem>,
+    /// Lowercased extensions of every file the walk reached, parsed or not. `[scan] include`
+    /// narrows what is checked, not what exists, so it does not apply here.
+    pub extensions: BTreeSet<String>,
 }
 
 #[derive(Debug, thiserror::Error)]
@@ -67,6 +71,7 @@ enum Outcome {
     File(ScannedFile),
     Skipped(SkippedFile),
     Problem(WalkProblem),
+    Extension(String),
 }
 
 /// Respects `.gitignore` (with or without a `.git` directory), `.ignore`, and `.anchrignore`;
@@ -100,6 +105,7 @@ pub fn scan_root(
     builder.build_parallel().run(|| {
         let sender = sender.clone();
         let mut analyzer = FileAnalyzer::new(registry, root.config.scan.parse_budget);
+        let mut seen_extensions: HashSet<String> = HashSet::new();
         Box::new(move |entry| {
             let outcome = match entry {
                 Err(error) => Some(Outcome::Problem(WalkProblem {
@@ -108,6 +114,12 @@ pub fn scan_root(
                 })),
                 Ok(entry) => {
                     if entry.file_type().is_some_and(|kind| kind.is_file()) {
+                        if mode == ScanMode::Full
+                            && let Some(extension) = visited_extension(root, entry.path())
+                            && seen_extensions.insert(extension.clone())
+                        {
+                            let _ = sender.send(Outcome::Extension(extension));
+                        }
                         visit_file(root, &mut analyzer, mode, entry.path(), &entry)
                     } else {
                         None
@@ -129,6 +141,9 @@ pub fn scan_root(
             Outcome::File(file) => output.files.push(file),
             Outcome::Skipped(skipped) => output.skipped.push(skipped),
             Outcome::Problem(problem) => output.problems.push(problem),
+            Outcome::Extension(extension) => {
+                output.extensions.insert(extension);
+            }
         }
     }
     output.files.sort_by(|a, b| a.path.cmp(&b.path));
@@ -137,6 +152,12 @@ pub fn scan_root(
         .problems
         .sort_by(|a, b| a.path.cmp(&b.path).then(a.message.cmp(&b.message)));
     Ok(output)
+}
+
+fn visited_extension(root: &Root, absolute: &std::path::Path) -> Option<String> {
+    let relative = absolute.strip_prefix(root.dir.as_std_path()).ok()?;
+    let extension = Utf8Path::from_path(relative)?.extension()?;
+    Some(extension.to_ascii_lowercase())
 }
 
 fn visit_file(
@@ -293,6 +314,38 @@ mod tests {
             config,
         );
         assert_eq!(paths(&fixture.scan(ScanMode::Full).files), vec!["kept.md"]);
+    }
+
+    #[test]
+    fn visited_extensions_are_harvested_before_the_include_filter() {
+        let mut config = Config::default();
+        config.scan.include = Some(
+            globset::GlobSetBuilder::new()
+                .add(globset::Glob::new("**/*.md").unwrap())
+                .build()
+                .unwrap(),
+        );
+        let fixture = Fixture::with_config(
+            &[
+                (".gitignore", "gen.zzz\n"),
+                ("a.md", ""),
+                ("Cargo.lock", ""),
+                ("img.PNG", ""),
+                ("Makefile", ""),
+                ("gen.zzz", ""),
+            ],
+            config,
+        );
+        let output = fixture.scan(ScanMode::Full);
+        assert_eq!(paths(&output.files), vec!["a.md"]);
+        assert_eq!(
+            output.extensions,
+            ["lock", "md", "png"]
+                .map(str::to_owned)
+                .into_iter()
+                .collect()
+        );
+        assert!(fixture.scan(ScanMode::AnchorsOnly).extensions.is_empty());
     }
 
     #[test]

@@ -1,7 +1,7 @@
 //! Loading a workspace (scan every present root, index them) and the one guarantee built on
 //! it: `check`. Broken references are data in the report; only tool failures are errors.
 
-use std::collections::BTreeMap;
+use std::collections::{BTreeMap, BTreeSet};
 
 use camino::Utf8PathBuf;
 
@@ -45,11 +45,13 @@ pub enum CheckError {
     Position(#[from] PositionOverflow),
 }
 
-/// Files a root's scan could not check, kept for the report.
+/// What a root's scan learned beyond its index: files it could not check, kept for the report,
+/// and the extensions it walked past, which coverage's path rule reads.
 #[derive(Debug, Clone, Default)]
 pub struct ScanFindings {
     pub skipped: Vec<SkippedFile>,
     pub problems: Vec<WalkProblem>,
+    pub extensions: BTreeSet<String>,
 }
 
 /// Every present root scanned and indexed, ready for checking, querying, or renaming.
@@ -90,6 +92,7 @@ impl Workspace {
                 ScanFindings {
                     skipped: output.skipped,
                     problems: output.problems,
+                    extensions: output.extensions,
                 },
             );
             indexes.insert(

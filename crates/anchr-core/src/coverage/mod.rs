@@ -3,10 +3,10 @@
 //! and `annotate` proposes markers only where the target already resolves. It never errors
 //! and never writes on its own.
 
-use std::collections::{BTreeMap, HashMap};
-use std::sync::LazyLock;
+mod linguist;
+mod token;
 
-use regex::Regex;
+use std::collections::{BTreeMap, BTreeSet, HashMap};
 
 use crate::check::Workspace;
 use crate::edit::TextEdit;
@@ -14,49 +14,10 @@ use crate::index::Site;
 use crate::marker::{Alias, MarkerPayload, NoRefEntry, NoRefItem, parse_target};
 use crate::noref::NoRefSet;
 use crate::resolve::{Resolution, Resolver};
-use crate::root::FilePath;
+use crate::root::{FilePath, RootName};
 use crate::span::ByteSpan;
 use crate::text::{Container, FileAnalyzer, RegionKind};
-
-/// A path-shaped token: something with a `/` in it, or a bare name with a known extension,
-/// optionally followed by `#Symbol`.
-static PATH_TOKEN: LazyLock<Regex> = LazyLock::new(|| {
-    #[expect(clippy::expect_used, reason = "the pattern is a literal, checked by tests")]
-    Regex::new(
-        r"(?x)
-        (?: (?:[A-Za-z0-9_.-]+/)+ [A-Za-z0-9_.-]+
-          | [A-Za-z0-9_-]+ \. (?:md|markdown|txt|rs|ts|tsx|mts|cts|js|jsx|mjs|cjs|py|pyi|go|toml|json|yaml|yml) \b
-        )
-        (?: \# [A-Za-z_$][A-Za-z0-9_$]* )?",
-    )
-    .expect("path token regex is a valid literal")
-});
-
-static IDENTIFIER: LazyLock<Regex> = LazyLock::new(|| {
-    #[expect(
-        clippy::expect_used,
-        reason = "the pattern is a literal, checked by tests"
-    )]
-    Regex::new(r"^[A-Za-z_$][A-Za-z0-9_$]*$").expect("identifier regex is a valid literal")
-});
-
-/// An identifier-shaped word; matched against the file's declared aliases.
-static WORD: LazyLock<Regex> = LazyLock::new(|| {
-    #[expect(
-        clippy::expect_used,
-        reason = "the pattern is a literal, checked by tests"
-    )]
-    Regex::new(r"[A-Za-z_][A-Za-z0-9_]*").expect("word regex is a valid literal")
-});
-
-/// Backtick spans inside a comment, the comment-world equivalent of markdown code spans.
-static COMMENT_CODE_SPAN: LazyLock<Regex> = LazyLock::new(|| {
-    #[expect(
-        clippy::expect_used,
-        reason = "the pattern is a literal, checked by tests"
-    )]
-    Regex::new(r"`([^`\n]+)`").expect("code span regex is a valid literal")
-});
+use token::{KnownExtensions, PathShape, Shape, tokens};
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum CandidateKind {
@@ -148,6 +109,13 @@ pub fn coverage(workspace: &Workspace, only_files: &[FilePath]) -> CoverageRepor
     let mut analyzer = FileAnalyzer::new(&workspace.registry, root.config.scan.parse_budget);
     let symbols = symbol_index(workspace, &mut analyzer);
     let mut resolver = Resolver::new(&workspace.roots, &workspace.registry);
+    let no_extensions = BTreeSet::new();
+    let known = KnownExtensions::new(
+        workspace
+            .findings
+            .get(&root.name)
+            .map_or(&no_extensions, |findings| &findings.extensions),
+    );
     let excluded = &root.config.coverage.exclude;
     let in_scope = |path: &FilePath| {
         (only_files.is_empty() || only_files.contains(path)) && !excluded.is_match(path.as_path())
@@ -194,7 +162,7 @@ pub fn coverage(workspace: &Workspace, only_files: &[FilePath]) -> CoverageRepor
             let Some(text) = source.get(region.span.start..region.span.end) else {
                 continue;
             };
-            for token in tokens(text, region.kind, &aliases) {
+            for token in tokens(text, region.kind, &aliases, known) {
                 let span = token.span.shifted_by(region.span.start);
                 if occupied.iter().any(|taken| taken.intersects(span)) {
                     continue;
@@ -204,7 +172,9 @@ pub fn coverage(workspace: &Workspace, only_files: &[FilePath]) -> CoverageRepor
                     continue;
                 }
                 let kind = match &token.shape {
-                    Shape::Path => classify_path(&mut resolver, &root.name, &token.text),
+                    Shape::Path(shape) => {
+                        classify_path(&mut resolver, &root.name, &token.text, *shape)
+                    }
                     Shape::Identifier => classify_identifier(&symbols, &token.text),
                     Shape::Alias(alias) => Some(CandidateKind::Proposal {
                         replacement: format!("@[{alias}]"),
@@ -317,190 +287,21 @@ pub fn coverage(workspace: &Workspace, only_files: &[FilePath]) -> CoverageRepor
     }
 }
 
-#[derive(Debug, Clone, PartialEq, Eq)]
-enum Shape {
-    Path,
-    Identifier,
-    /// A word equal to an alias this file declares: the highest-confidence candidate there is.
-    Alias(Alias),
-}
-
-struct Token {
-    /// Relative to the region text. For a code span this is the whole span, backticks included.
-    span: ByteSpan,
-    /// The reference-shaped content without any backticks.
-    text: String,
-    shape: Shape,
-}
-
-/// Alias matches come first and shadow any other token on the same bytes: a code span holding
-/// `Analyzer` is a use of this file's alias before it is a symbol declared somewhere.
-fn tokens(text: &str, kind: RegionKind, aliases: &[&Alias]) -> Vec<Token> {
-    let mut found = alias_tokens(text, kind, aliases);
-    let taken: Vec<ByteSpan> = found.iter().map(|token| token.span).collect();
-    let others: Vec<Token> = match kind {
-        RegionKind::InlineCode => code_span_token(text, ByteSpan::new(0, text.len()))
-            .into_iter()
-            .collect(),
-        RegionKind::Comment => {
-            let mut tokens = Vec::new();
-            let mut covered = Vec::new();
-            for captures in COMMENT_CODE_SPAN.captures_iter(text) {
-                let Some(whole) = captures.get(0) else {
-                    continue;
-                };
-                covered.push(ByteSpan::from(whole.range()));
-                tokens.extend(code_span_token(
-                    whole.as_str(),
-                    ByteSpan::from(whole.range()),
-                ));
-            }
-            tokens.extend(
-                path_tokens(text).filter(|token| !covered.iter().any(|c| c.intersects(token.span))),
-            );
-            tokens
-        }
-        RegionKind::Prose | RegionKind::Whole => path_tokens(text).collect(),
-    };
-    found.extend(
-        others
-            .into_iter()
-            .filter(|token| !taken.iter().any(|span| span.intersects(token.span))),
-    );
-    found
-}
-
-/// Exact, case-sensitive matches against the file's own aliases: a whole code span holding
-/// one, or a bare word outside code spans and link text.
-fn alias_tokens(text: &str, kind: RegionKind, aliases: &[&Alias]) -> Vec<Token> {
-    if aliases.is_empty() {
-        return Vec::new();
-    }
-    let declared = |word: &str| aliases.iter().find(|alias| alias.as_str() == word).copied();
-    let alias_token = |span: ByteSpan, alias: &Alias| Token {
-        span,
-        text: alias.to_string(),
-        shape: Shape::Alias(alias.clone()),
-    };
-    match kind {
-        RegionKind::InlineCode => declared(text.trim_matches('`').trim())
-            .map(|alias| alias_token(ByteSpan::new(0, text.len()), alias))
-            .into_iter()
-            .collect(),
-        RegionKind::Comment => {
-            let mut found = Vec::new();
-            let mut covered = Vec::new();
-            for captures in COMMENT_CODE_SPAN.captures_iter(text) {
-                let Some(whole) = captures.get(0) else {
-                    continue;
-                };
-                covered.push(ByteSpan::from(whole.range()));
-                if let Some(alias) = declared(whole.as_str().trim_matches('`').trim()) {
-                    found.push(alias_token(ByteSpan::from(whole.range()), alias));
-                }
-            }
-            found.extend(
-                alias_words(text, &declared)
-                    .filter(|token| !covered.iter().any(|c| c.intersects(token.span))),
-            );
-            found
-        }
-        RegionKind::Prose | RegionKind::Whole => alias_words(text, &declared).collect(),
-    }
-}
-
-fn alias_words<'t>(
-    text: &'t str,
-    declared: &'t dyn Fn(&str) -> Option<&'t Alias>,
-) -> impl Iterator<Item = Token> + 't {
-    WORD.find_iter(text).filter_map(move |word| {
-        if is_glued(text, word.start()) {
-            return None;
-        }
-        let alias = declared(word.as_str())?;
-        Some(Token {
-            span: ByteSpan::from(word.range()),
-            text: alias.to_string(),
-            shape: Shape::Alias(alias.clone()),
-        })
-    })
-}
-
-/// A code span whose entire content is one path or one identifier.
-fn code_span_token(span_text: &str, span: ByteSpan) -> Option<Token> {
-    let content = span_text.trim_matches('`').trim();
-    if content.is_empty() {
-        return None;
-    }
-    if PATH_TOKEN
-        .find(content)
-        .is_some_and(|m| m.as_str() == content)
-        && has_letter(content)
-    {
-        return Some(Token {
-            span,
-            text: content.to_owned(),
-            shape: Shape::Path,
-        });
-    }
-    if IDENTIFIER.is_match(content) && content.len() >= 3 {
-        return Some(Token {
-            span,
-            text: content.to_owned(),
-            shape: Shape::Identifier,
-        });
-    }
-    None
-}
-
-fn path_tokens(text: &str) -> impl Iterator<Item = Token> + '_ {
-    PATH_TOKEN.find_iter(text).filter_map(move |found| {
-        let mut end = found.end();
-        while end > found.start() && matches!(text.as_bytes()[end - 1], b'.' | b',' | b';' | b':') {
-            end -= 1;
-        }
-        let token = &text[found.start()..end];
-        if !has_letter(token) || is_glued(text, found.start()) || in_url(text, found.start()) {
-            return None;
-        }
-        Some(Token {
-            span: ByteSpan::new(found.start(), end),
-            text: token.to_owned(),
-            shape: Shape::Path,
-        })
-    })
-}
-
-/// File and directory names have letters in them; `v1/2` and `24/7` do not, at least not in
-/// the segment that would have to be a file.
-fn has_letter(token: &str) -> bool {
-    let path_part = token.split('#').next().unwrap_or(token);
-    path_part
-        .rsplit('/')
-        .next()
-        .is_some_and(|last| last.chars().any(|c| c.is_ascii_alphabetic()))
-}
-
-/// Preceded by a path or word character, so this is the tail of something longer.
-fn is_glued(text: &str, start: usize) -> bool {
-    text[..start].chars().next_back().is_some_and(|c| {
-        c.is_alphanumeric() || matches!(c, '/' | '.' | '-' | '_' | '@' | '[' | '~')
-    })
-}
-
-fn in_url(text: &str, start: usize) -> bool {
-    text[..start].ends_with("://")
-}
-
+/// A glob tail names the directory it globs, so `src/**` is checked and proposed as `src/`.
 fn classify_path(
     resolver: &mut Resolver<'_>,
-    current: &crate::root::RootName,
+    current: &RootName,
     token: &str,
+    shape: PathShape,
 ) -> Option<CandidateKind> {
-    let target = parse_target(token).ok()?.target;
+    let target_text = match shape {
+        PathShape::Glob => token.trim_end_matches('*'),
+        PathShape::File | PathShape::Directory => token,
+    };
+    let target = parse_target(target_text).ok()?.target;
     Some(match resolver.resolve(current, &target) {
         Resolution::Resolved => CandidateKind::Proposal {
-            replacement: format!("@ref[{token}]"),
+            replacement: format!("@ref[{target_text}]"),
         },
         Resolution::Unresolved(unresolved) => CandidateKind::Unresolvable {
             reason: crate::diagnostic::DiagnosticKind::Unresolved(unresolved).to_string(),
@@ -613,6 +414,10 @@ mod tests {
             .collect()
     }
 
+    fn row(path: &str, text: &str, kind: &str) -> (String, String, String) {
+        (path.to_owned(), text.to_owned(), kind.to_owned())
+    }
+
     #[test]
     fn paths_in_prose_and_code_spans_are_proposed_when_they_resolve() {
         let fixture = Fixture::new(&[
@@ -627,32 +432,95 @@ mod tests {
         assert_eq!(
             describe(&report),
             vec![
-                (
-                    "README.md".to_owned(),
-                    "`docs/guide.md`".to_owned(),
-                    "propose @ref[docs/guide.md]".to_owned()
+                row(
+                    "README.md",
+                    "`docs/guide.md`",
+                    "propose @ref[docs/guide.md]"
                 ),
-                (
-                    "README.md".to_owned(),
-                    "docs/guide.md".to_owned(),
-                    "propose @ref[docs/guide.md]".to_owned()
-                ),
-                (
-                    "README.md".to_owned(),
-                    "docs/missing.md".to_owned(),
-                    "unresolvable".to_owned()
-                ),
-                (
-                    "README.md".to_owned(),
-                    "anchr.toml".to_owned(),
-                    "propose @ref[anchr.toml]".to_owned()
-                ),
+                row("README.md", "docs/guide.md", "propose @ref[docs/guide.md]"),
+                row("README.md", "docs/missing.md", "unresolvable"),
+                row("README.md", "anchr.toml", "propose @ref[anchr.toml]"),
             ]
         );
         assert_eq!(report.summary.annotated_refs, 1);
         assert_eq!(report.summary.proposals, 3);
         assert_eq!(report.summary.unresolvable, 1);
         assert_eq!(report.summary.total(), 5);
+    }
+
+    #[test]
+    fn directory_and_glob_tokens_propose_the_directory_form() {
+        let fixture = Fixture::new(&[
+            (
+                "README.md",
+                "See `docs/research/`, src/* and src/**. Also the missing/ directory.\n",
+            ),
+            ("docs/research/survey.md", ""),
+            ("src/lib.rs", ""),
+        ]);
+        let report = fixture.coverage();
+        assert_eq!(
+            describe(&report),
+            vec![
+                row(
+                    "README.md",
+                    "`docs/research/`",
+                    "propose @ref[docs/research/]"
+                ),
+                row("README.md", "src/*", "propose @ref[src/]"),
+                row("README.md", "src/**", "propose @ref[src/]"),
+                row("README.md", "missing/", "unresolvable"),
+            ]
+        );
+        let edits = report.proposals();
+        let readme = &edits[&FilePath::new(Utf8PathBuf::from("README.md")).unwrap()];
+        let described: Vec<(&str, &str)> = readme
+            .iter()
+            .map(|edit| (edit.expected.as_str(), edit.replacement.as_str()))
+            .collect();
+        assert_eq!(
+            described,
+            vec![
+                ("`docs/research/`", "@ref[docs/research/]"),
+                ("src/*", "@ref[src/]"),
+                ("src/**", "@ref[src/]"),
+            ]
+        );
+    }
+
+    #[test]
+    fn prose_slash_pairs_and_version_numbers_are_not_candidates() {
+        let fixture = Fixture::new(&[(
+            "README.md",
+            "Reports line/col, licensed Apache-2.0/MIT, e.g. since 1.x, i.e. a.k.a. v1.1;\nsee src/directory and the website, or `struct/class` and `e.g`.\n",
+        )]);
+        let report = fixture.coverage();
+        assert!(report.candidates.is_empty(), "{:?}", describe(&report));
+        assert_eq!(report.summary.total(), 0);
+    }
+
+    #[test]
+    fn repo_extensions_extend_the_linguist_table() {
+        let with_file = Fixture::new(&[
+            ("README.md", "Read other.zzq first.\n"),
+            ("data/notes.zzq", ""),
+        ]);
+        assert_eq!(
+            describe(&with_file.coverage()),
+            vec![row("README.md", "other.zzq", "unresolvable")]
+        );
+
+        let without_file = Fixture::new(&[("README.md", "Read other.zzq first.\n")]);
+        assert!(without_file.coverage().candidates.is_empty());
+    }
+
+    #[test]
+    fn linguist_extensions_are_known_without_a_repo_file() {
+        let fixture = Fixture::new(&[("README.md", "The notes moved from old.txt.\n")]);
+        assert_eq!(
+            describe(&fixture.coverage()),
+            vec![row("README.md", "old.txt", "unresolvable")]
+        );
     }
 
     #[test]
@@ -675,26 +543,18 @@ mod tests {
         assert_eq!(
             describe(&report),
             vec![
-                (
-                    "docs/a.md".to_owned(),
-                    "`validate_token`".to_owned(),
-                    "propose @ref[src/auth.rs#validate_token]".to_owned()
+                row(
+                    "docs/a.md",
+                    "`validate_token`",
+                    "propose @ref[src/auth.rs#validate_token]"
                 ),
-                (
-                    "docs/a.md".to_owned(),
-                    "`shared_name`".to_owned(),
-                    "ambiguous x2".to_owned()
+                row("docs/a.md", "`shared_name`", "ambiguous x2"),
+                row(
+                    "src/other.rs",
+                    "`validate_token`",
+                    "propose @ref[src/auth.rs#validate_token]"
                 ),
-                (
-                    "src/other.rs".to_owned(),
-                    "`validate_token`".to_owned(),
-                    "propose @ref[src/auth.rs#validate_token]".to_owned()
-                ),
-                (
-                    "src/other.rs".to_owned(),
-                    "src/auth.rs".to_owned(),
-                    "propose @ref[src/auth.rs]".to_owned()
-                ),
+                row("src/other.rs", "src/auth.rs", "propose @ref[src/auth.rs]"),
             ]
         );
         assert_eq!(report.summary.ambiguous, 1);
@@ -778,7 +638,7 @@ mod tests {
         let fixture = Fixture::new(&[
             (
                 "docs/a.md",
-                "@noref[docs/guide.md, src/, Guide]\n@ref[docs/guide.md as Guide]\nSee `docs/guide.md`, src/x.rs, `src/x.rs#run`, and Guide (@[Guide]).\n",
+                "@noref[docs/guide.md, src/, Guide]\n@ref[docs/guide.md as Guide]\nSee `docs/guide.md`, src/x.rs, `src/x.rs#run`, src/*, src/, and Guide (@[Guide]).\n",
             ),
             ("docs/b.md", "See `docs/guide.md` and src/x.rs.\n"),
             ("docs/guide.md", "# Guide\n"),
@@ -788,19 +648,15 @@ mod tests {
         assert_eq!(
             describe(&report),
             vec![
-                (
-                    "docs/b.md".to_owned(),
-                    "`docs/guide.md`".to_owned(),
-                    "propose @ref[docs/guide.md]".to_owned()
+                row(
+                    "docs/b.md",
+                    "`docs/guide.md`",
+                    "propose @ref[docs/guide.md]"
                 ),
-                (
-                    "docs/b.md".to_owned(),
-                    "src/x.rs".to_owned(),
-                    "propose @ref[src/x.rs]".to_owned()
-                ),
+                row("docs/b.md", "src/x.rs", "propose @ref[src/x.rs]"),
             ]
         );
-        assert_eq!(report.summary.ignored, 4);
+        assert_eq!(report.summary.ignored, 6);
         assert_eq!(report.summary.unused_ignores, 0);
         assert_eq!(report.summary.annotated_refs, 2);
         assert_eq!(report.summary.total(), 4);
@@ -815,16 +671,8 @@ mod tests {
         assert_eq!(
             describe(&report),
             vec![
-                (
-                    "docs/a.md".to_owned(),
-                    "bar.md".to_owned(),
-                    "unused ignore".to_owned()
-                ),
-                (
-                    "docs/a.md".to_owned(),
-                    "foo.ts".to_owned(),
-                    "unused ignore".to_owned()
-                ),
+                row("docs/a.md", "bar.md", "unused ignore"),
+                row("docs/a.md", "foo.ts", "unused ignore"),
             ]
         );
         let spans: Vec<&str> = report
@@ -860,10 +708,10 @@ mod tests {
         let report = coverage(&workspace, &[]);
         assert_eq!(
             describe(&report),
-            vec![(
-                "docs/a.md".to_owned(),
-                "`docs/guide.md`".to_owned(),
-                "propose @ref[docs/guide.md]".to_owned()
+            vec![row(
+                "docs/a.md",
+                "`docs/guide.md`",
+                "propose @ref[docs/guide.md]"
             )]
         );
         assert_eq!(
