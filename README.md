@@ -89,9 +89,12 @@ A file that mentions one target many times declares it once and uses a short loc
 ```
 
 `@noref` lists strings that look like references in this file and are not, such as example paths;
-`anchr coverage` stops proposing them and reports any entry that no longer matches anything. A
-string looks like a reference when it ends in `/` or is `name.ext` with an extension GitHub
-Linguist lists or a file in the repository carries; a glob such as `src/*` is proposed as `src/`.
+`anchr coverage` stops proposing them and reports any entry that no longer matches anything.
+Entries are globs matched against the whole string, so `src/**` covers a subtree and `src/` only
+the word itself; `[ignore] tokens` in `anchr.toml` takes the same entries root-wide, and
+`[ignore] paths` lists files anchr never looks at, in gitignore syntax. A string looks like a
+reference when it ends in `/` or is `name.ext` with an extension GitHub Linguist lists or a file
+in the repository carries; a glob such as `src/*` is proposed as `src/`.
 A backticked code symbol on its own never does: a name has no single referent, so declare it
 once with `as` and every use in the file is proposed.
 
@@ -106,8 +109,8 @@ comments (outside backtick spans), and in `.txt` files. Configuration lives in @
 - @ref[CODE_DESIGN.md] — how the code is shaped, and every place it deviates from the two above
 - @ref[docs/design/aliases.md] — file-scoped alias imports, so a reference is declared once per
   file and used by a short local name
-- @ref[docs/design/ignores.md] — `@noref` and `[coverage] ignore`, for strings that look like
-  references and are not
+- @ref[docs/design/ignores.md] — `@noref` and `[ignore]`: which paths anchr looks at, and which
+  strings it never proposes
 - @ref[docs/research/] — the crate survey, security checklist digest, and design review behind it
 
 ## License

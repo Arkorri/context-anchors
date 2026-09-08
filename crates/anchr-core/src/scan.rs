@@ -4,7 +4,6 @@ use std::collections::{BTreeSet, HashSet};
 use std::sync::mpsc;
 
 use camino::{Utf8Path, Utf8PathBuf};
-use ignore::overrides::OverrideBuilder;
 use ignore::{WalkBuilder, WalkState};
 
 use crate::marker::MarkerPayload;
@@ -65,12 +64,6 @@ pub struct ScanOutput {
     pub tree: FileTree,
 }
 
-#[derive(Debug, thiserror::Error)]
-pub enum ScanError {
-    #[error("invalid exclude pattern: {0}")]
-    Overrides(#[source] ignore::Error),
-}
-
 enum Outcome {
     File(ScannedFile),
     Skipped(SkippedFile),
@@ -79,36 +72,36 @@ enum Outcome {
     Entry { path: FilePath, entry: Entry },
 }
 
-/// Respects `.gitignore` (with or without a `.git` directory), `.ignore`, and `.anchrignore`;
-/// never follows symlinks, recording each one with its link text instead. Hidden files are
-/// walked like any other (`.claude/skills` is exactly the documentation this tool exists for);
-/// `.git` is always pruned because its internals are never documentation and their extensions
-/// would pollute the coverage extension table. Excludes are walker overrides; includes are a
-/// post-filter, because an include override would silently un-ignore gitignored files.
-pub fn scan_root(
-    root: &Root,
-    registry: &LanguageRegistry,
-    mode: ScanMode,
-) -> Result<ScanOutput, ScanError> {
-    let mut overrides = OverrideBuilder::new(root.dir.as_std_path());
-    for pattern in &root.config.scan.exclude_patterns {
-        overrides
-            .add(&format!("!{pattern}"))
-            .map_err(ScanError::Overrides)?;
-    }
-    let overrides = overrides.build().map_err(ScanError::Overrides)?;
-
+/// Respects `.gitignore` exactly as git does: only inside a git repository, with parent
+/// `.gitignore` files stopping at the nearest `.git`. `[ignore] paths` is layered on top as a
+/// prune filter, after the walker's own gitignore pass, so a `!` line there can never resurrect
+/// a gitignored file. Never follows symlinks, recording each one with its link text instead.
+/// Hidden files are walked like any other (`.claude/skills` is exactly the documentation this
+/// tool exists for); `.git` is always pruned because its internals are never documentation and
+/// their extensions would pollute the coverage extension table. Includes are a post-filter,
+/// because a walker whitelist would silently un-ignore gitignored files.
+pub fn scan_root(root: &Root, registry: &LanguageRegistry, mode: ScanMode) -> ScanOutput {
+    let root_dir = root.dir.clone();
+    let ignored_paths = root.config.ignore.paths.clone();
     let mut builder = WalkBuilder::new(root.dir.as_std_path());
     builder
         .hidden(false)
-        .filter_entry(|entry| entry.file_name() != ".git")
+        .filter_entry(move |entry| {
+            if entry.file_name() == ".git" {
+                return false;
+            }
+            let Ok(relative) = entry.path().strip_prefix(root_dir.as_std_path()) else {
+                return true;
+            };
+            let is_dir = entry.file_type().is_some_and(|kind| kind.is_dir());
+            !ignored_paths.matched(relative, is_dir).is_ignore()
+        })
         .git_ignore(true)
         .git_global(true)
         .git_exclude(true)
-        .require_git(false)
-        .follow_links(false)
-        .add_custom_ignore_filename(".anchrignore")
-        .overrides(overrides);
+        .require_git(true)
+        .ignore(false)
+        .follow_links(false);
 
     let (sender, receiver) = mpsc::channel::<Outcome>();
     builder.build_parallel().run(|| {
@@ -167,7 +160,7 @@ pub fn scan_root(
     output
         .problems
         .sort_by(|a, b| a.path.cmp(&b.path).then(a.message.cmp(&b.message)));
-    Ok(output)
+    output
 }
 
 fn relative_path(root: &Root, absolute: &std::path::Path) -> Result<FilePath, WalkProblem> {
@@ -271,7 +264,6 @@ mod tests {
     use super::*;
     use crate::config::Config;
     use crate::root::RootName;
-    #[cfg(unix)]
     use crate::tree::Lookup;
 
     struct Fixture {
@@ -285,6 +277,13 @@ mod tests {
         }
 
         fn with_config(files: &[(&str, &str)], config: Config) -> Self {
+            let fixture = Self::without_git(files, config);
+            std::fs::create_dir_all(fixture.root.dir.join(".git")).unwrap();
+            fixture
+        }
+
+        /// A root that is not a git repository, so `.gitignore` files in it carry no weight.
+        fn without_git(files: &[(&str, &str)], config: Config) -> Self {
             let dir = tempfile::tempdir().unwrap();
             let base = Utf8PathBuf::from_path_buf(dir.path().to_path_buf()).unwrap();
             for (path, contents) in files {
@@ -304,8 +303,20 @@ mod tests {
 
         fn scan(&self, mode: ScanMode) -> ScanOutput {
             let registry = LanguageRegistry::new().unwrap();
-            scan_root(&self.root, &registry, mode).unwrap()
+            scan_root(&self.root, &registry, mode)
         }
+    }
+
+    /// A config whose `[ignore] paths` holds `lines`, rooted where the fixture will live. The
+    /// matcher strips the root prefix itself, so any root works for relative matching.
+    fn ignoring(lines: &[&str]) -> Config {
+        let mut builder = ignore::gitignore::GitignoreBuilder::new("/fixture");
+        for line in lines {
+            builder.add_line(None, line).unwrap();
+        }
+        let mut config = Config::default();
+        config.ignore.paths = builder.build().unwrap();
+        config
     }
 
     fn paths(files: &[ScannedFile]) -> Vec<&str> {
@@ -419,19 +430,60 @@ mod tests {
     }
 
     #[test]
-    fn exclude_patterns_and_anchrignore_prune_files() {
-        let mut config = Config::default();
-        config.scan.exclude_patterns = vec!["vendor/**".to_owned()];
+    fn ignore_paths_prune_files_and_cannot_whitelist_gitignored_ones() {
         let fixture = Fixture::with_config(
             &[
-                (".anchrignore", "drafts/\n"),
+                (".gitignore", "build/\n"),
                 ("kept.md", ""),
                 ("vendor/lib.md", ""),
+                ("vendor/keep.md", ""),
                 ("drafts/wip.md", ""),
+                ("docs/drafts/wip.md", ""),
+                ("build/x.md", ""),
             ],
-            config,
+            ignoring(&["vendor/**", "!vendor/keep.md", "drafts/", "!build/x.md"]),
         );
-        assert_eq!(paths(&fixture.scan(ScanMode::Full).files), vec!["kept.md"]);
+        let output = fixture.scan(ScanMode::Full);
+        assert_eq!(paths(&output.files), vec!["kept.md", "vendor/keep.md"]);
+        assert!(matches!(
+            output.tree.lookup("drafts".into()),
+            Lookup::Missing { .. }
+        ));
+    }
+
+    #[test]
+    fn a_root_without_git_gets_no_gitignore_processing() {
+        let fixture = Fixture::without_git(
+            &[
+                (".gitignore", "drafts/\n"),
+                ("drafts/wip.md", ""),
+                ("kept.md", ""),
+            ],
+            ignoring(&["vendor/**"]),
+        );
+        assert_eq!(
+            paths(&fixture.scan(ScanMode::Full).files),
+            vec!["drafts/wip.md", "kept.md"]
+        );
+    }
+
+    #[test]
+    fn a_parent_gitignore_stops_at_the_nearest_git_directory() {
+        let fixture = Fixture::without_git(&[(".gitignore", "inner/**\n")], Config::default());
+        let inner = fixture.root.dir.join("inner");
+        std::fs::create_dir_all(inner.join(".git")).unwrap();
+        std::fs::write(inner.join("kept.md"), "").unwrap();
+        std::fs::write(inner.join(".gitignore"), "drafts/\n").unwrap();
+        std::fs::create_dir_all(inner.join("drafts")).unwrap();
+        std::fs::write(inner.join("drafts/wip.md"), "").unwrap();
+        let root = Root {
+            name: RootName::parse("inner").unwrap(),
+            dir: inner,
+            config: Config::default(),
+        };
+        let registry = LanguageRegistry::new().unwrap();
+        let output = scan_root(&root, &registry, ScanMode::Full);
+        assert_eq!(paths(&output.files), vec!["kept.md"]);
     }
 
     #[test]
@@ -503,8 +555,7 @@ mod tests {
     #[cfg(unix)]
     #[test]
     fn the_tree_records_walked_files_and_symlinks_only() {
-        let mut config = Config::default();
-        config.scan.exclude_patterns = vec!["vendor/**".to_owned()];
+        let config = ignoring(&["vendor/**"]);
         let fixture = Fixture::with_config(
             &[
                 (".gitignore", "build/\n"),

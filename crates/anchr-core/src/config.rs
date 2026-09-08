@@ -6,6 +6,8 @@ use std::time::Duration;
 
 use camino::{Utf8Path, Utf8PathBuf};
 use globset::{GlobBuilder, GlobSet, GlobSetBuilder};
+use ignore::Match;
+use ignore::gitignore::{Gitignore, GitignoreBuilder};
 use serde::Deserialize;
 use toml::Spanned;
 
@@ -31,28 +33,8 @@ pub struct ScanConfig {
     /// `None` scans every file with a known container; `Some` additionally requires a match.
     pub include: Option<GlobSet>,
     pub include_patterns: Vec<String>,
-    /// The walker prunes by these; `exclude_matching` names the one that removed a path.
-    pub exclude: GlobSet,
-    pub exclude_patterns: Vec<String>,
     pub max_file_bytes: u64,
     pub parse_budget: Duration,
-}
-
-impl ScanConfig {
-    // @noref[target/]
-    /// The first `[scan] exclude` pattern matching `path`. A directory also matches patterns
-    /// written for its contents: `target/**` compiles to `target/.*`, which matches `target/`
-    /// but not `target`.
-    pub fn exclude_matching(&self, path: &Utf8Path, is_dir: bool) -> Option<&str> {
-        let mut matched = self.exclude.matches(path);
-        if matched.is_empty() && is_dir {
-            matched = self.exclude.matches(format!("{path}/"));
-        }
-        matched
-            .first()
-            .and_then(|&position| self.exclude_patterns.get(position))
-            .map(String::as_str)
-    }
 }
 
 impl Default for ScanConfig {
@@ -60,8 +42,6 @@ impl Default for ScanConfig {
         Self {
             include: None,
             include_patterns: Vec::new(),
-            exclude: GlobSet::empty(),
-            exclude_patterns: Vec::new(),
             max_file_bytes: DEFAULT_MAX_FILE_BYTES,
             parse_budget: DEFAULT_PARSE_BUDGET,
         }
@@ -73,22 +53,38 @@ pub struct CheckConfig {
     pub unverified: UnverifiedPolicy,
 }
 
-/// What `coverage` leaves alone. Nothing here affects `check`.
+/// The two ignore questions: which paths anchr never looks at, and which prose strings it never
+/// proposes as references.
 #[derive(Debug, Clone)]
-pub struct CoverageConfig {
-    /// Files still scanned and checked, but never asked for candidates.
-    pub exclude: GlobSet,
-    pub exclude_patterns: Vec<String>,
-    /// Strings that are never references anywhere in the root.
-    pub ignore: Vec<NoRefEntry>,
+pub struct IgnoreConfig {
+    /// gitignore-syntax lines rooted at the root directory, layered on `.gitignore`. The walker
+    /// prunes by them and `path_pattern` names the one that removed a path.
+    pub paths: Gitignore,
+    /// Globs matched against coverage tokens. Read from the current root only.
+    pub tokens: Vec<NoRefEntry>,
 }
 
-impl Default for CoverageConfig {
+impl IgnoreConfig {
+    // @noref[target/**]
+    /// The `[ignore] paths` line that removes `path`, as written. A directory also matches a
+    /// line written for its contents, so `target/**` is reported for `target` itself.
+    pub fn path_pattern(&self, path: &Utf8Path, is_dir: bool) -> Option<&str> {
+        let matched = match self.paths.matched(path, is_dir) {
+            Match::None if is_dir => self.paths.matched(format!("{path}/"), true),
+            matched => matched,
+        };
+        match matched {
+            Match::Ignore(glob) => Some(glob.original()),
+            Match::Whitelist(_) | Match::None => None,
+        }
+    }
+}
+
+impl Default for IgnoreConfig {
     fn default() -> Self {
         Self {
-            exclude: GlobSet::empty(),
-            exclude_patterns: Vec::new(),
-            ignore: Vec::new(),
+            paths: Gitignore::empty(),
+            tokens: Vec::new(),
         }
     }
 }
@@ -101,7 +97,7 @@ pub struct Config {
     pub scan: ScanConfig,
     pub containers: ContainerRules,
     pub check: CheckConfig,
-    pub coverage: CoverageConfig,
+    pub ignore: IgnoreConfig,
 }
 
 #[derive(Debug, thiserror::Error)]
@@ -195,7 +191,7 @@ struct RawConfig {
     scan: RawScanSection,
     containers: RawContainersSection,
     check: RawCheckSection,
-    coverage: RawCoverageSection,
+    ignore: RawIgnoreSection,
 }
 
 #[derive(Debug, Default, Deserialize)]
@@ -208,7 +204,6 @@ struct RawRootSection {
 #[serde(deny_unknown_fields, rename_all = "kebab-case", default)]
 struct RawScanSection {
     include: Option<Vec<Spanned<String>>>,
-    exclude: Vec<Spanned<String>>,
     max_file_bytes: Option<Spanned<u64>>,
     parse_budget_ms: Option<Spanned<u64>>,
 }
@@ -228,9 +223,9 @@ struct RawCheckSection {
 
 #[derive(Debug, Default, Deserialize)]
 #[serde(deny_unknown_fields, rename_all = "kebab-case", default)]
-struct RawCoverageSection {
-    exclude: Vec<Spanned<String>>,
-    ignore: Vec<Spanned<String>>,
+struct RawIgnoreSection {
+    paths: Vec<Spanned<String>>,
+    tokens: Vec<Spanned<String>>,
 }
 
 struct Validator<'a> {
@@ -263,8 +258,6 @@ impl Validator<'_> {
             .as_deref()
             .map(|patterns| self.glob_set("scan.include", patterns))
             .transpose()?;
-        let exclude_patterns = self.strings("scan.exclude", &raw.scan.exclude)?;
-        let exclude = self.glob_set("scan.exclude", &exclude_patterns)?;
 
         let max_file_bytes = match raw.scan.max_file_bytes {
             None => DEFAULT_MAX_FILE_BYTES,
@@ -304,11 +297,9 @@ impl Validator<'_> {
             },
         };
 
-        let coverage_exclude_patterns = self.strings("coverage.exclude", &raw.coverage.exclude)?;
-        let coverage = CoverageConfig {
-            exclude: self.glob_set("coverage.exclude", &coverage_exclude_patterns)?,
-            exclude_patterns: coverage_exclude_patterns,
-            ignore: self.noref_entries("coverage.ignore", &raw.coverage.ignore)?,
+        let ignore = IgnoreConfig {
+            paths: self.gitignore("ignore.paths", &raw.ignore.paths)?,
+            tokens: self.noref_entries("ignore.tokens", &raw.ignore.tokens)?,
         };
 
         Ok(Config {
@@ -317,8 +308,6 @@ impl Validator<'_> {
             scan: ScanConfig {
                 include,
                 include_patterns: include_patterns.unwrap_or_default(),
-                exclude,
-                exclude_patterns,
                 max_file_bytes,
                 parse_budget,
             },
@@ -326,7 +315,7 @@ impl Validator<'_> {
             check: CheckConfig {
                 unverified: raw.check.unverified,
             },
-            coverage,
+            ignore,
         })
     }
 
@@ -388,6 +377,24 @@ impl Validator<'_> {
             entries.push(entry);
         }
         Ok(entries)
+    }
+
+    /// `[ignore] paths`: gitignore lines rooted at the config's directory, so `/x` anchors and
+    /// `!x` re-includes exactly as they would in a `.gitignore` there.
+    fn gitignore(&self, field: &str, values: &[Spanned<String>]) -> Result<Gitignore, ConfigError> {
+        let mut builder = GitignoreBuilder::new(self.base_dir);
+        for value in values {
+            let line = value.get_ref();
+            if line.trim().is_empty() || line.starts_with('#') {
+                return Err(self.invalid(field, "empty pattern".to_owned(), Some(value.span())));
+            }
+            builder.add_line(None, line).map_err(|error| {
+                self.invalid(field, format!("`{line}`: {error}"), Some(value.span()))
+            })?;
+        }
+        builder
+            .build()
+            .map_err(|error| self.invalid(field, error.to_string(), None))
     }
 
     fn glob_set(&self, field: &str, patterns: &[String]) -> Result<GlobSet, ConfigError> {
@@ -480,9 +487,8 @@ mod tests {
         assert_eq!(config.scan.parse_budget, DEFAULT_PARSE_BUDGET);
         assert_eq!(config.containers, ContainerRules::default());
         assert_eq!(config.check.unverified, UnverifiedPolicy::Report);
-        assert!(config.coverage.exclude_patterns.is_empty());
-        assert!(config.coverage.ignore.is_empty());
-        assert!(!config.coverage.exclude.is_match("anything.md"));
+        assert!(config.ignore.paths.is_empty());
+        assert!(config.ignore.tokens.is_empty());
     }
 
     #[test]
@@ -499,7 +505,6 @@ mod tests {
 
             [scan]
             include = ["docs/**/*.md"]
-            exclude = ["vendor/**"]
             max-file-bytes = 4096
             parse-budget-ms = 250
 
@@ -510,9 +515,9 @@ mod tests {
             [check]
             unverified = "error"
 
-            [coverage]
-            exclude = ["docs/research/**"]
-            ignore = ["CLAUDE.md", "src/legacy/"]
+            [ignore]
+            paths = ["vendor/**", "/build/", "!vendor/keep.md"]
+            tokens = ["CLAUDE.md", "src/legacy/**"]
             "#,
         )
         .unwrap();
@@ -530,23 +535,24 @@ mod tests {
             Utf8PathBuf::from("/opt/shared")
         );
         assert!(config.scan.include.unwrap().is_match("docs/a/b.md"));
-        assert_eq!(config.scan.exclude_patterns, vec!["vendor/**"]);
         assert_eq!(config.scan.max_file_bytes, 4096);
         assert_eq!(config.scan.parse_budget, Duration::from_millis(250));
         assert_eq!(config.containers.markdown_extensions, vec!["md", "mdx"]);
         assert_eq!(config.containers.plaintext_extensions, vec!["txt", "text"]);
         assert_eq!(config.check.unverified, UnverifiedPolicy::Error);
-        assert_eq!(config.coverage.exclude_patterns, vec!["docs/research/**"]);
-        assert!(config.coverage.exclude.is_match("docs/research/a/b.md"));
-        assert!(!config.coverage.exclude.is_match("docs/design/a.md"));
+        let paths = &config.ignore.paths;
+        assert!(paths.matched("vendor/lib.md", false).is_ignore());
+        assert!(paths.matched("vendor/keep.md", false).is_whitelist());
+        assert!(paths.matched("build", true).is_ignore());
+        assert!(paths.matched("docs/build", true).is_none());
         assert_eq!(
             config
-                .coverage
                 .ignore
+                .tokens
                 .iter()
                 .map(NoRefEntry::as_str)
                 .collect::<Vec<_>>(),
-            vec!["CLAUDE.md", "src/legacy/"]
+            vec!["CLAUDE.md", "src/legacy/**"]
         );
     }
 
@@ -572,16 +578,16 @@ mod tests {
                 "scan.max-file-bytes",
             ),
             ("[scan]\nparse-budget-ms = 0\n", "scan.parse-budget-ms"),
-            ("[scan]\nexclude = [\"\"]\n", "scan.exclude"),
             (
                 "[containers]\nmarkdown = [\".md\"]\n",
                 "containers.markdown",
             ),
-            ("[coverage]\nexclude = [\"\"]\n", "coverage.exclude"),
-            ("[coverage]\nignore = [\"\"]\n", "coverage.ignore"),
-            ("[coverage]\nignore = [\"a b\"]\n", "coverage.ignore"),
-            ("[coverage]\nignore = [\"a,b\"]\n", "coverage.ignore"),
-            ("[coverage]\nignore = [\"x\", \"x\"]\n", "coverage.ignore"),
+            ("[ignore]\npaths = [\"\"]\n", "ignore.paths"),
+            ("[ignore]\npaths = [\"# comment\"]\n", "ignore.paths"),
+            ("[ignore]\ntokens = [\"\"]\n", "ignore.tokens"),
+            ("[ignore]\ntokens = [\"a b\"]\n", "ignore.tokens"),
+            ("[ignore]\ntokens = [\"docs/[\"]\n", "ignore.tokens"),
+            ("[ignore]\ntokens = [\"x\", \"x\"]\n", "ignore.tokens"),
         ];
         for (text, expected_field) in cases {
             match parse(text) {
@@ -598,8 +604,6 @@ mod tests {
     fn an_invalid_glob_is_rejected() {
         let error = parse("[scan]\ninclude = [\"docs/[\"]\n").unwrap_err();
         assert!(matches!(error, ConfigError::Invalid { field, .. } if field == "scan.include"));
-        let error = parse("[coverage]\nexclude = [\"docs/[\"]\n").unwrap_err();
-        assert!(matches!(error, ConfigError::Invalid { field, .. } if field == "coverage.exclude"));
     }
 
     #[test]
@@ -620,23 +624,29 @@ mod tests {
     }
 
     #[test]
-    fn exclude_matching_names_the_pattern_that_removed_a_path() {
-        let config = parse("[scan]\nexclude = [\"target/**\", \"**/snapshots/**\"]\n").unwrap();
-        let scan = &config.scan;
-        let matching =
-            |path: &str, is_dir: bool| scan.exclude_matching(Utf8Path::new(path), is_dir);
-        assert_eq!(matching("target/debug/x.md", false), Some("target/**"));
-        assert_eq!(matching("target", true), Some("target/**"));
-        assert_eq!(matching("target", false), None);
+    fn path_pattern_names_the_gitignore_line_that_removed_a_path() {
+        let config = parse(
+            "[ignore]\npaths = [\"target/**\", \"**/snapshots/**\", \"!target/keep.md\", \"drafts/\"]\n",
+        )
+        .unwrap();
+        let ignore = &config.ignore;
+        let pattern = |path: &str, is_dir: bool| ignore.path_pattern(Utf8Path::new(path), is_dir);
+        assert_eq!(pattern("target/debug/x.md", false), Some("target/**"));
+        assert_eq!(pattern("target", true), Some("target/**"));
+        assert_eq!(pattern("target", false), None);
+        assert_eq!(pattern("target/keep.md", false), None);
         assert_eq!(
-            matching("a/snapshots/b.snap", false),
+            pattern("a/snapshots/b.snap", false),
             Some("**/snapshots/**")
         );
-        assert_eq!(matching("src/a.md", false), None);
+        assert_eq!(pattern("drafts", true), Some("drafts/"));
+        assert_eq!(pattern("docs/drafts", true), Some("drafts/"));
+        assert_eq!(pattern("drafts", false), None);
+        assert_eq!(pattern("src/a.md", false), None);
         assert_eq!(
             Config::default()
-                .scan
-                .exclude_matching(Utf8Path::new("target/x"), false),
+                .ignore
+                .path_pattern(Utf8Path::new("target/x"), false),
             None
         );
     }

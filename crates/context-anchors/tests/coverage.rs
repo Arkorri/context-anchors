@@ -194,13 +194,12 @@ fn ignores_suppress_candidates_and_unused_entries_are_reported() {
     let fixture = Fixture::new(&[
         (
             "anchr.toml",
-            "[coverage]\nexclude = [\"archive/**\"]\nignore = [\"CLAUDE.md\", \"never.md\"]\n",
+            "[ignore]\ntokens = [\"CLAUDE.md\", \"never.md\"]\n",
         ),
         (
             "docs/a.md",
             "@noref[foo.ts, spare.md]\nSee `docs/guide.md`, foo.ts, and CLAUDE.md. @ref[docs/guide.md]\n",
         ),
-        ("archive/old.md", "docs/guide.md\n"),
         ("docs/guide.md", "# Guide\n"),
     ]);
     fixture
@@ -217,7 +216,6 @@ fn ignores_suppress_candidates_and_unused_entries_are_reported() {
         .stdout(predicate::str::contains(
             "`never.md` — ignored but never matched\n --> anchr.toml\n",
         ))
-        .stdout(predicate::str::contains("archive/old.md").not())
         .stdout(predicate::str::contains(
             "1 of 2 reference-shaped strings are annotated; 1 could be, 0 do not resolve; 2 strings ignored; 2 ignore entries never matched",
         ));
@@ -425,4 +423,35 @@ fn file_relative_proposals_are_written_by_annotate_and_pass_check() {
         .assert()
         .code(0)
         .stdout(predicate::str::contains("1 resolved, 0 errors"));
+}
+
+#[test]
+fn token_globs_are_literal() {
+    let fixture = Fixture::new(&[
+        ("anchr.toml", "[ignore]\ntokens = [\"**/CLAUDE.md\"]\n"),
+        (
+            "docs/a.md",
+            "@noref[src/]\nSee src/, src/x.ts, and docs/CLAUDE.md.\n",
+        ),
+        (
+            "docs/b.md",
+            "@noref[src/**]\nSee src/, src/x.ts, and src/y/z.ts.\n",
+        ),
+        ("docs/CLAUDE.md", "# Notes\n"),
+        ("src/x.ts", "export const x = 1;\n"),
+        ("src/y/z.ts", "export const z = 1;\n"),
+    ]);
+    fixture
+        .anchr()
+        .args(["coverage", "--color", "never"])
+        .assert()
+        .code(0)
+        .stdout(predicate::str::contains(
+            "`src/x.ts` — could be @ref[src/x.ts]\n --> docs/a.md:2:11\n",
+        ))
+        .stdout(predicate::str::contains("docs/b.md").not())
+        .stdout(predicate::str::contains("CLAUDE.md —").not())
+        .stdout(predicate::str::contains(
+            "0 of 1 reference-shaped strings are annotated; 1 could be, 0 do not resolve; 5 strings ignored",
+        ));
 }

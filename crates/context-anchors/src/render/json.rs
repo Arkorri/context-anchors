@@ -271,7 +271,7 @@ struct JsonCoverage {
     schema: u32,
     summary: JsonCoverageSummary,
     candidates: Vec<JsonCandidateGroup>,
-    /// `[coverage] ignore` entries that matched nothing; they have no location.
+    /// `[ignore] tokens` entries that matched nothing; they have no location.
     #[serde(skip_serializing_if = "Vec::is_empty")]
     unused_config_ignores: Vec<String>,
 }

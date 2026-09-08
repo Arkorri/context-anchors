@@ -9,7 +9,7 @@
 @ref[#cli/coverage as Coverage]
 @ref[#cli/backrefs as Backrefs]
 @ref[#cli/rename as Rename]
-@noref[docs/x.md, x.md]
+@noref[docs/x.md, x.md, .claude/]
 
 ---
 
@@ -186,10 +186,16 @@ repository rather than this one. The author says so once, and the report stops a
 ```
 
 ```toml
-[coverage]
-exclude = ["docs/research/**"]      # still checked; never asked for more annotation
-ignore  = ["CLAUDE.md", "AGENTS.md"] # never a reference anywhere in this root
+[ignore]
+paths  = ["target/**"]               # never looked at: not scanned, not checked, not a target
+tokens = ["CLAUDE.md", "AGENTS.md"]  # never proposed as a reference anywhere in this root
 ```
+
+Two questions, two keys. `paths` answers "should anchr look at this file?" in gitignore syntax,
+layered on `.gitignore`; what git ignores and what `paths` lists are equally invisible, and
+nothing can reference into either. `tokens` answers "should this string be proposed?" and
+`@noref` is its file-scoped form. There is no "checked but never proposed": a file is looked at
+or it is not.
 
 - Reference-shaped means a path ending in `/` (a glob tail such as `src/*` counts and is
   proposed as the directory) or `name.ext` with an extension GitHub Linguist lists or a file in
@@ -199,8 +205,9 @@ ignore  = ["CLAUDE.md", "AGENTS.md"] # never a reference anywhere in this root
   know is the one the author meant. Symbols enter coverage through an alias declaration, after
   which every use in that file is proposed.
 - `@noref` is **file-scoped**, like an alias: the ignore travels with the text it protects.
-  Config `ignore` is root-wide. Matching is exact, plus the path of a `path#Symbol` token and a
-  trailing-`/` prefix; no globs.
+  `tokens` is root-wide. Both are globs matched against the whole string, or the path of a
+  `path#Symbol` token: `src/` is only `src/`, `src/**` is the subtree. Nothing is a prefix
+  unless written as one.
 - An entry that matches nothing is reported by @[Coverage], the way an unused alias is. Ignore
   lists rot otherwise.
 - @[Check] is untouched. Ignores remove coverage candidates; they never make anything resolve.
@@ -236,7 +243,8 @@ Roots exist because the motivating use case spans them. `~/.claude/` is not a gi
 skills reference other skills across plugin boundaries, and a repository's `CLAUDE.md` may point
 into a globally installed skill. Every lockfile-at-repo-root assumption breaks on that case. For
 the same reason a repository's own `.claude/` is scanned like any other directory: hidden is not
-a synonym for irrelevant, and what should be skipped is what `.gitignore` already says to skip.
+a synonym for irrelevant, and what should be skipped is what `.gitignore` already says to skip,
+applied exactly as git applies it, plus whatever `[ignore] paths` adds in the same syntax.
 
 Roots also give a **distinguishable error class**. "Root `claude` is not present" and "reference
 is broken" demand entirely different responses, and conflating them reproduces the original
@@ -480,7 +488,7 @@ motivating use case ships in v1 for near-zero marginal work.
   anything. Determinism gives soundness; it gives nothing on coverage. The scanner reports
   "43 of 210 reference-shaped strings are annotated" and proposes annotations. It never errors
   and never writes on its own. This is also the migration path onto the tool. `@noref` and
-  `[coverage] ignore` let the author retire the candidates that are correctly shaped and still
+  `[ignore] tokens` let the author retire the candidates that are correctly shaped and still
   not references, so the report can reach zero.
 
 - `anchr rename`, `anchr backrefs`

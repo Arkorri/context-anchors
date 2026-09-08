@@ -25,8 +25,8 @@ pub enum Command {
     /// Rename an anchor id, rewriting its declaration and every reference to it.
     Rename(RenameArgs),
     // @anchor[cli/coverage]
-    /// Report reference-shaped strings that carry no marker, minus `@noref` and `[coverage]`
-    /// ignores. Never fails.
+    /// Report reference-shaped strings that carry no marker, minus `@noref` and `[ignore]
+    /// tokens` entries. Never fails.
     Coverage(CoverageArgs),
     // @anchor[cli/annotate]
     /// Propose `@ref` and `@[alias]` markers for reference-shaped strings whose target resolves.

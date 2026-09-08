@@ -15,6 +15,8 @@ impl Fixture {
     fn new(files: &[(&str, &str)]) -> Self {
         let dir = tempfile::tempdir().unwrap();
         let root = dir.path().join("repo");
+        // A `.git` marker: `.gitignore` files carry weight only inside a repository.
+        fs::create_dir_all(root.join(".git")).unwrap();
         for (path, contents) in files {
             let full = root.join(path);
             fs::create_dir_all(full.parent().unwrap()).unwrap();
@@ -179,6 +181,18 @@ fn a_semantic_config_error_names_the_field() {
 }
 
 #[test]
+fn a_stale_coverage_table_is_a_config_error() {
+    let fixture = Fixture::new(&[("anchr.toml", "[coverage]\nignore = []\n"), ("a.md", "")]);
+    fixture
+        .anchr()
+        .args(["check"])
+        .assert()
+        .code(2)
+        .stderr(predicate::str::contains("coverage"))
+        .stderr(predicate::str::contains("anchr.toml"));
+}
+
+#[test]
 fn paths_filter_references_but_not_root_wide_findings() {
     let fixture = Fixture::new(&[
         ("a.md", "@ref[#gone] @anchor[dup]\n"),
@@ -261,7 +275,7 @@ fn a_gitignored_target_is_missing_and_the_note_says_why() {
     };
     assert_eq!(
         note_for("`build/out.md`"),
-        "`build/out.md` exists on disk, but is ignored by `.gitignore` or `.anchrignore` rules, so the scan never sees it; ignored files cannot be referenced"
+        "`build/out.md` exists on disk, but is ignored by `.gitignore`, so the scan never sees it; ignored files cannot be referenced"
     );
     assert_eq!(
         note_for("`build`"),
@@ -270,9 +284,9 @@ fn a_gitignored_target_is_missing_and_the_note_says_why() {
 }
 
 #[test]
-fn an_excluded_target_is_missing_and_the_note_names_the_pattern() {
+fn an_ignored_path_is_missing_and_the_note_names_the_pattern() {
     let fixture = Fixture::new(&[
-        ("anchr.toml", "[scan]\nexclude = [\"vendor/**\"]\n"),
+        ("anchr.toml", "[ignore]\npaths = [\"vendor/**\"]\n"),
         ("vendor/lib.md", "# vendored\n"),
         ("docs/a.md", "See @ref[vendor/lib.md].\n"),
     ]);
@@ -281,7 +295,7 @@ fn an_excluded_target_is_missing_and_the_note_names_the_pattern() {
     let note = json["diagnostics"][0]["notes"][0].as_str().unwrap();
     assert_eq!(
         note,
-        "`vendor/lib.md` exists on disk, but `[scan] exclude` pattern `vendor/**` keeps it out of the scan; excluded paths cannot be referenced"
+        "`vendor/lib.md` exists on disk, but `[ignore] paths` pattern `vendor/**` keeps it out of the scan; ignored paths cannot be referenced"
     );
 }
 

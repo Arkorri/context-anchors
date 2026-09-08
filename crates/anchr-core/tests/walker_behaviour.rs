@@ -7,6 +7,8 @@ use std::fs;
 use std::path::Path;
 use std::sync::mpsc;
 
+use ignore::Match;
+use ignore::gitignore::GitignoreBuilder;
 use ignore::overrides::OverrideBuilder;
 use ignore::{WalkBuilder, WalkState};
 
@@ -43,26 +45,50 @@ fn base_walker(root: &Path) -> WalkBuilder {
     builder
         .hidden(true)
         .git_ignore(true)
-        .require_git(false)
+        .require_git(true)
+        .ignore(false)
         .follow_links(false);
     builder
 }
 
+fn git_marker(root: &Path) {
+    fs::create_dir_all(root.join(".git")).unwrap();
+}
+
 #[test]
-fn gitignore_is_honoured_without_a_git_directory() {
+fn gitignore_requires_a_git_directory_when_require_git_is_on() {
     let dir = tempfile::tempdir().unwrap();
     write(&dir.path().join(".gitignore"), "generated.md\n");
     write(&dir.path().join("kept.md"), "");
     write(&dir.path().join("generated.md"), "");
 
-    let names = walked_file_names(&base_walker(dir.path()));
+    let without_git = walked_file_names(&base_walker(dir.path()));
+    assert_eq!(without_git, vec!["generated.md", "kept.md"]);
 
-    assert_eq!(names, vec!["kept.md"]);
+    git_marker(dir.path());
+    let with_git = walked_file_names(&base_walker(dir.path()));
+    assert_eq!(with_git, vec!["kept.md"]);
+}
+
+#[test]
+fn parent_gitignore_files_stop_at_the_nearest_git_directory() {
+    let dir = tempfile::tempdir().unwrap();
+    git_marker(dir.path());
+    write(&dir.path().join(".gitignore"), "inner/**\nshared.md\n");
+    let inner = dir.path().join("inner");
+    git_marker(&inner);
+    write(&inner.join("kept.md"), "");
+    write(&inner.join("shared.md"), "");
+
+    let names = walked_file_names(&base_walker(&inner));
+
+    assert_eq!(names, vec!["kept.md", "shared.md"]);
 }
 
 #[test]
 fn whitelist_override_bypasses_gitignore_so_include_must_be_a_post_filter() {
     let dir = tempfile::tempdir().unwrap();
+    git_marker(dir.path());
     write(&dir.path().join(".gitignore"), "generated.md\n");
     write(&dir.path().join("kept.md"), "");
     write(&dir.path().join("generated.md"), "");
@@ -81,20 +107,34 @@ fn whitelist_override_bypasses_gitignore_so_include_must_be_a_post_filter() {
     );
 }
 
+/// `[ignore] paths` is a `Gitignore` built from config lines and consulted with root-relative
+/// paths. Pins: the matched glob reports its original text, a `!` line whitelists, an
+/// unanchored directory line matches at any depth, and a `**` tail does not match the directory
+/// itself (the config's `path_pattern` retries with a trailing slash for that case).
 #[test]
-fn exclude_override_removes_files_the_gitignore_kept() {
-    let dir = tempfile::tempdir().unwrap();
-    write(&dir.path().join("kept.md"), "");
-    write(&dir.path().join("vendor/third_party.md"), "");
+fn a_gitignore_matcher_built_from_config_lines_names_the_original_pattern() {
+    let mut builder = GitignoreBuilder::new("/root");
+    for line in ["target/**", "!target/keep.md", "drafts/", "/build/"] {
+        builder.add_line(None, line).unwrap();
+    }
+    let paths = builder.build().unwrap();
+    let ignored = |path: &str, is_dir: bool| match paths.matched(path, is_dir) {
+        Match::Ignore(glob) => Some(glob.original().to_owned()),
+        Match::Whitelist(_) | Match::None => None,
+    };
 
-    let mut overrides = OverrideBuilder::new(dir.path());
-    overrides.add("!vendor/**").unwrap();
-    let mut builder = base_walker(dir.path());
-    builder.overrides(overrides.build().unwrap());
-
-    let names = walked_file_names(&builder);
-
-    assert_eq!(names, vec!["kept.md"]);
+    assert_eq!(
+        ignored("target/debug/x.md", false).as_deref(),
+        Some("target/**")
+    );
+    assert_eq!(ignored("target/keep.md", false), None);
+    assert_eq!(ignored("target", true), None);
+    assert_eq!(ignored("target/", true).as_deref(), Some("target/**"));
+    assert_eq!(ignored("drafts", true).as_deref(), Some("drafts/"));
+    assert_eq!(ignored("docs/drafts", true).as_deref(), Some("drafts/"));
+    assert_eq!(ignored("drafts", false), None);
+    assert_eq!(ignored("build", true).as_deref(), Some("/build/"));
+    assert_eq!(ignored("docs/build", true), None);
 }
 
 #[test]
