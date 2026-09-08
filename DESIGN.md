@@ -224,7 +224,9 @@ bare is local, prefixed is external.
 
 Roots exist because the motivating use case spans them. `~/.claude/` is not a git repository,
 skills reference other skills across plugin boundaries, and a repository's `CLAUDE.md` may point
-into a globally installed skill. Every lockfile-at-repo-root assumption breaks on that case.
+into a globally installed skill. Every lockfile-at-repo-root assumption breaks on that case. For
+the same reason a repository's own `.claude/` is scanned like any other directory: hidden is not
+a synonym for irrelevant, and what should be skipped is what `.gitignore` already says to skip.
 
 Roots also give a **distinguishable error class**. "Root `claude` is not present" and "reference
 is broken" demand entirely different responses, and conflating them reproduces the original

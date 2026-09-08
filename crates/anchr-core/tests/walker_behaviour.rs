@@ -98,6 +98,29 @@ fn exclude_override_removes_files_the_gitignore_kept() {
 }
 
 #[test]
+fn hidden_false_walks_dotfiles_and_filter_entry_prunes_a_directory_by_name() {
+    let dir = tempfile::tempdir().unwrap();
+    write(&dir.path().join(".hidden.md"), "");
+    write(&dir.path().join(".github/ci.yml"), "");
+    write(&dir.path().join(".git/config.md"), "");
+    write(&dir.path().join("nested/.git/hooks/pre-commit.sample"), "");
+    write(&dir.path().join("kept.md"), "");
+
+    let mut builder = base_walker(dir.path());
+    builder
+        .hidden(false)
+        .filter_entry(|entry| entry.file_name() != ".git");
+
+    let names = walked_file_names(&builder);
+
+    assert_eq!(
+        names,
+        vec![".hidden.md", "ci.yml", "kept.md"],
+        "filter_entry must prune `.git` at every depth while hidden(false) keeps other dotfiles"
+    );
+}
+
+#[test]
 fn symlinks_are_not_followed() {
     let dir = tempfile::tempdir().unwrap();
     let outside = tempfile::tempdir().unwrap();

@@ -79,6 +79,7 @@ fn a_clean_repo_exits_zero_with_a_summary() {
             "# Repo @anchor[readme]\n\nSee @ref[#readme] and @ref[src/lib.rs#run].\n",
         ),
         ("src/lib.rs", "// @ref[#readme]\npub fn run() {}\n"),
+        (".claude/skills/repo/SKILL.md", "Start at @ref[#readme].\n"),
     ]);
     fixture
         .anchr()
@@ -86,7 +87,7 @@ fn a_clean_repo_exits_zero_with_a_summary() {
         .assert()
         .code(0)
         .stdout(predicate::str::contains(
-            "checked 3 references in 2 files (1 anchors): 3 resolved, 0 errors, 0 unverified",
+            "checked 4 references in 3 files (1 anchors): 4 resolved, 0 errors, 0 unverified",
         ));
 }
 

@@ -11,7 +11,9 @@
 
 # [scan]
 # include = []                 # empty: every file with a known container is scanned
-# exclude = []                 # gitignore-style globs, applied on top of .gitignore
+# exclude = []                 # gitignore-style globs, applied on top of .gitignore; hidden
+#                              # directories such as .claude/ are scanned (.git/ never is), so
+#                              # list the ones to skip here, e.g. [".venv/**"]
 # max-file-bytes = 2097152     # larger files are reported as unverified, not scanned
 # parse-budget-ms = 5000       # per-file tree-sitter parse budget
 

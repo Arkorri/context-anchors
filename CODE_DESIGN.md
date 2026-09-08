@@ -310,9 +310,16 @@ Output per file: `FileScan { path, markers: Vec<Marker>, malformed: Vec<Malforme
 <!-- @anchor[code/scan] -->
 
 For a @ref[crates/anchr-core/src/root.rs#Root]: `ignore::WalkBuilder::new(root.dir)` with
-`.hidden(true)`, `.git_ignore(true)`, `.require_git(false)` (so `.gitignore` is honored in non-git
-roots like `~/.claude`), `.follow_links(false)`, `.add_custom_ignore_filename(".anchrignore")`, and
-an `OverrideBuilder` holding **only** `config.scan.exclude` as `!` globs. `include` is *not* an
+`.hidden(false)` plus a `filter_entry` that prunes any entry named `.git` at any depth,
+`.git_ignore(true)`, `.require_git(false)` (so `.gitignore` is honored in non-git roots),
+`.follow_links(false)`, `.add_custom_ignore_filename(".anchrignore")`, and an `OverrideBuilder`
+holding **only** `config.scan.exclude` as `!` globs. Hidden files are walked because
+`.claude/skills/**/SKILL.md` and `.github/workflows/*.yml` are exactly the documentation this
+tool checks; `.gitignore` and `[scan] exclude` are the knobs for dotdirs that should not be, the
+same way they are for everything else. `.git` is pruned rather than merely unscanned so its
+object and hook extensions never reach the coverage extension table (§12a item 15). A repository
+that keeps worktrees under `.claude/worktrees/` must exclude them, in `.git/info/exclude` or
+`[scan] exclude`, or every anchor id appears twice. `include` is *not* an
 override: `ignore` consults overrides before ignore files and returns on any override match, so a
 whitelist glob would silently un-ignore gitignored files (`CHANGELOG.md`, `*.generated.ts`). Instead
 `include` is compiled to a `globset::GlobSet` (`literal_separator(true)`) and applied as a

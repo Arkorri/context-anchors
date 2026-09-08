@@ -15,7 +15,8 @@ that still uses the old name.
 ```
 
 Markers are recognised in Markdown prose (not inside code fences or inline code), in source
-code comments (not inside backtick spans), and anywhere in `.txt` files. To show a marker as
+code comments (not inside backtick spans), and anywhere in `.txt` files, in hidden directories
+such as `.claude/` like anywhere else. Files that git ignores are never scanned. To show a marker as
 an example without it being checked, put it in a code fence or inline code, or escape it:
 `\@ref[...]` or `@ref\[...\]`.
 
