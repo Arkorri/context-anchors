@@ -320,7 +320,11 @@ scope covers the overwhelming majority of references in prose; claiming more wou
 ### Index
 
 Maps ID → (root, path, line). Purely derived, incremental, regenerable from scratch,
-**gitignored**. Never authoritative.
+**gitignored**. Never authoritative. Authority for what *exists* is the scan itself: a pure
+function of the filesystem and the ignore rules, rerun on every invocation. A path that git
+ignores or the configuration excludes is on the machine and not in the repository, so it is not
+a target; the check must agree with a clean checkout. The index and its file tree are that
+scan's result, never persisted.
 
 The format must remain resolvable by `grep` alone — `grep '@anchor\[some-id\]'` finds the
 definition in one hop. The index makes resolution fast; it is never required for correctness.

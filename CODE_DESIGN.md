@@ -327,13 +327,22 @@ post-filter in the visitor, after the walker has already applied `.gitignore`. A
 integration test pins this: a gitignored `.md` file must not be scanned.
 
 `build_parallel()` gives a thread per core with a per-thread visitor. Each visitor owns a
-@[FileAnalyzer] (§3.1) and a clone of an `mpsc::Sender<ScanOutcome>`. Per file:
-`symlink_metadata` size check first (> `config.scan.max_file_bytes`, default 2 MiB →
-`SkippedFile::TooLarge`), then `std::fs::read` + UTF-8 validation (non-UTF-8 →
-`SkippedFile::NotUtf8`), `analyzer.scan(path, source)`, send. The main thread drains the channel
-into `Vec<FileScan>` + `Vec<SkippedFile>`. No `rayon`: the walker already provides the
+@[FileAnalyzer] (§3.1) and a clone of an `mpsc::Sender<ScanOutcome>`. Every file and symlink
+the walk yields is first sent as a tree entry (a symlink with its `read_link` text, never
+followed), before any include or container gating, so @ref[Cargo.lock] and `image.png` are in
+the tree though never lexed. Then, per file with a container: `metadata` size check (>
+`config.scan.max_file_bytes`, default 2 MiB → `SkippedFile::TooLarge`), `std::fs::read` + UTF-8
+validation (non-UTF-8 → `SkippedFile::NotUtf8`), `analyzer.scan(path, source)`, send. The main
+thread drains the channel into `Vec<FileScan>` + `Vec<SkippedFile>` + a
+@ref[crates/anchr-core/src/tree.rs#FileTree]. No `rayon`: the walker already provides the
 parallelism, and channel-to-single-reducer avoids a shared `Mutex<Vec>`. Paths convert to
-`Utf8PathBuf` at this boundary; a non-UTF-8 file name is `SkippedFile::NonUtf8Path`.
+`Utf8PathBuf` at this boundary; a non-UTF-8 file name is a `WalkProblem`.
+
+**The scan is the authority on what exists.** It is a pure function of the filesystem and the
+ignore rules, rerun on every invocation, and its tree is the only thing path resolution consults
+(§3.5). A file that git ignores, that `.anchrignore` lists, or that `[scan] exclude` prunes is on
+this machine and not in the repository, so it does not exist as a target and a clean checkout
+agrees with the local run.
 
 **External roots are scanned in `ScanMode::AnchorsOnly`.** Their refs and malformed markers are
 discarded: the user is checking *their* root, and an external root's own cross-root refs could
@@ -403,11 +412,10 @@ pub enum Unverified {
 }
 ```
 
-@[Resolver] holds `&RootSet`, `&HashMap<RootName, Index>`,
-its own @[FileAnalyzer], a `DirectoryListingCache`, and a per-run `symbol_cache: HashMap<(RootName,
-RelPath), SymbolTable>` so a file referenced by 40 refs is parsed once. Resolution runs
-single-threaded after the fold (it is cheap relative to the scan), so these caches need no
-synchronization.
+@[Resolver] holds `&RootSet`, `&HashMap<RootName, Index>` (each index carrying its root's scan
+tree), its own @[FileAnalyzer], and a per-run `symbol_cache: HashMap<(RootName, RelPath),
+SymbolTable>` so a file referenced by 40 refs is parsed once. Resolution runs single-threaded
+after the fold (it is cheap relative to the scan), so these caches need no synchronization.
 
 **Root selection happens once, before dispatch on target kind**, so all three variants share one
 rule: `None` ⇒ current root; a name not in @ref[crates/anchr-core/src/root.rs#RootSet] ⇒
@@ -415,13 +423,19 @@ rule: `None` ⇒ current root; a name not in @ref[crates/anchr-core/src/root.rs#
 `RootStatus::Absent` ⇒ `Unverified::RootAbsent`; otherwise resolution proceeds against that root's
 dir and index.
 
-- **Path**: exact-name, component-by-component lookup against a `read_dir` listing of each parent,
-  cached per directory for the run (`DirectoryListingCache`, shared with the sibling suggestions in
-  §3.6). Not `symlink_metadata`: on a case-insensitive filesystem (macOS default) `@ref[src/Foo.ts]`
-  would resolve against `foo.ts` and then fail in Linux CI, breaking invariant 5
-  (@ref[#design/invariants]). Every component present ⇒ Resolved. A trailing `/` in the target
-  additionally requires the final entry to be a directory. Directory refs stay
-  (@ref[#design/open-questions] Q1: free, so keep).
+- **Path**: a lookup in the root's scan tree (§3.3), never on the disk. A file exists when the
+  walk enumerated it; a directory exists when the walk enumerated something beneath it, so an
+  empty directory or one whose every file is ignored does not. Gitignored, `.anchrignore`d, and
+  `[scan] exclude`d paths are therefore missing, and a missing path that is nevertheless on disk
+  gets a note naming the cause: the exclude pattern that pruned it, or the ignore rules. Keys are
+  the bytes the walker reported, so on a case-insensitive filesystem (macOS default)
+  `@ref[src/Foo.ts]` still fails against `foo.ts` exactly as in Linux CI (invariant 5,
+  @ref[#design/invariants]). A symlink entry is redirected lexically: substitute its link text
+  for the longest recorded prefix, normalize, look up again, at most `MAX_SYMLINK_HOPS` times;
+  a link whose target leaves the root is the one case that falls back to `fs::metadata`, for
+  existence only, because the tree has no ignore information out there and
+  `docs -> ../shared-docs` is a promised shape. A trailing `/` in the target additionally requires
+  a directory. Directory refs stay (@ref[#design/open-questions] Q1: free, so keep).
 - **Symbol**: path must exist (else `PathMissing`); the joined path is canonicalized and must
   `starts_with` the canonical root (else `PathEscapesRoot`, since this is a read); registry lookup
   by extension (none ⇒ `NoGrammar`; no declaration query ⇒ `NoSymbolQuery`); parse with
@@ -475,7 +489,8 @@ by location count desc. `Report::has_errors()` drives exit code 1.
 
 Suggestions (@ref[crates/anchr-core/src/suggest.rs#suggest]): rustc's rule, which fits short
 identifiers better than Jaro. Over the candidate set (all anchor IDs in the target root; all symbol
-names in the target file; sibling entries of the missing path's parent directory): first a
+names in the target file; the names beneath the missing component's parent in the scan tree,
+so an ignored sibling is never suggested): first a
 case-insensitive exact match, then `strsim::osa_distance` (restricted Damerau-Levenshtein) accepted
 when `distance ≤ max(len, 3) / 3`, then for hierarchical IDs the same on the last `/` segment. At
 most one suggestion, the lowest distance; never mutates.
@@ -663,6 +678,7 @@ Not used, deliberately: `rayon` (walker already parallel), `tree-sitter-tags` (w
   `tests/fixtures/<case>/` with an expected `report.json` snapshot via `insta`; `assert_cmd`
   for exit codes 0/1/2, `--format json` schema stability, `--strict`, absent external root,
   duplicate anchors, cross-root refs, undeclared root ⇒ error vs absent root ⇒ unverified,
+  gitignored or excluded target ⇒ missing with a note naming the cause,
   external root's refs not reported, a gitignored `.md` matching `include` is *not* scanned,
   symlink not followed, oversized file reported as unverified with the anchors-unindexed wording,
   `@ref[src/Foo.ts]` against `foo.ts` is `PathMissing` on every platform (exact-name lookup),
@@ -741,10 +757,12 @@ legitimately go wrong with a *file* is a `Result` or an unverified finding.
 no filesystem access, so it also works for paths that do not exist yet). For *reads* (symbol
 resolution parses the target file), the joined path is additionally `canonicalize`d and checked
 with `starts_with(root_canonical)` (`dunce::simplified` on the root on Windows); a symlink that
-escapes the root yields `Unresolved::PathEscapesRoot` rather than a read. Existence-only path refs use
-`symlink_metadata` and never follow. The walker runs with `follow_links(false)`. Functions take
-`&Utf8Path`, not owned paths. A `proptest` asserts `RelPath::parse(s).map(|p| root.join(p))`
-never escapes `root` for arbitrary `s`.
+escapes the root yields `Unresolved::PathEscapesRoot` rather than a read. Existence-only path refs
+consult the scan tree (§3.5); a symlink entry is redirected lexically and never dereferenced,
+except that a link whose target leaves the root is classified with `fs::metadata` for existence
+only. Nothing is read without the canonical containment check. The walker runs with
+`follow_links(false)`. Functions take `&Utf8Path`, not owned paths. A `proptest` asserts
+`RelPath::parse(s).map(|p| root.join(p))` never escapes `root` for arbitrary `s`.
 
 **Input bounds** (items 14, 16, 19) — @ref[crates/anchr-core/src/marker/id.rs#AnchorId],
 @ref[crates/anchr-core/src/root.rs#RootName],
@@ -780,7 +798,8 @@ MIT/Apache-2.0/BSD-3/ISC/Unicode-3.0; @ref[Cargo.lock] committed; CI builds with
 `cargo audit` + `cargo deny check` on every PR; `cargo geiger` run once to record the unsafe budget the tree-sitter stack brings in.
 
 **Gaps the checklist does not cover, handled anyway** — symlink loops: the walker never follows
-links, and the only reads outside the walk are canonicalized symbol-resolution targets. Open-file
+links, lexical redirection in the scan tree is bounded by `MAX_SYMLINK_HOPS`, and the only reads
+outside the walk are canonicalized symbol-resolution targets. Open-file
 pressure: the walker's thread count bounds concurrent reads and each file is read whole and
 dropped before the next. Char boundaries: covered under integer handling above. JSON output:
 `serde_json` escapes control characters; invalid UTF-8 cannot reach it because non-UTF-8 files
@@ -908,8 +927,9 @@ Refinements the code made to the design above, recorded so the document stays th
 11. **Names that differ from the body above.**
     @ref[crates/anchr-core/src/text/mod.rs#AnalyzeError] is the design's `ContainerError`.
     There is no `NoSymbolQuery`: every registered language ships a declaration query. The
-    per-run directory cache is a private @ref[crates/anchr-core/src/resolve/path.rs#Listing],
-    not a `DirectoryListingCache`. Skipped files are one `DiagnosticKind::FileSkipped` carrying a
+    `DirectoryListingCache` became the scan-produced
+    @ref[crates/anchr-core/src/tree.rs#FileTree] (item 18). Skipped files are one
+    `DiagnosticKind::FileSkipped` carrying a
     @ref[crates/anchr-core/src/scan.rs#SkipReason] rather than `FileNotUtf8`/`FileTooLarge`, and
     @ref[crates/anchr-core/src/resolve/mod.rs#Unresolved] gained `PathNotDirectory`/`PathNotFile`
     for the trailing-slash rule. Module layout: @ref[crates/anchr-core/src/marker/] is split into
@@ -976,6 +996,22 @@ Refinements the code made to the design above, recorded so the document stays th
     → 1,937, and the JSON candidate list 2,934 entries → 724 groups. Most groups have one site,
     so the human report only halves; the point is that the thousand-site group is now one entry
     at the top of its kind instead of the whole report.
+
+18. **A target exists only if the scan enumerated it.** On the monorepo, @[Coverage] proposed
+    `@ref[server/lib/src/modules/invoices/invoice-cover-page.js]`: build output in a gitignored
+    directory, present because the build had run. Existence came from `read_dir`, so
+    @[Check] would have passed locally and failed on a clean checkout, the exact split invariant
+    5 forbids. The walk now records every file and symlink it yields in a
+    @ref[crates/anchr-core/src/tree.rs#FileTree] carried by the @[Index], and path resolution is
+    a lookup in that tree (§3.5): gitignored, `.anchrignore`d, and `[scan] exclude`d paths are
+    missing, an empty directory is missing, and a missing path that is on disk gets a note naming
+    the exclude pattern or the ignore rules. The three knobs now mean three things: gitignore and
+    `[scan] exclude` remove a path from existence, indexing, and coverage; `[coverage] exclude`
+    only stops proposals. Exclude a tree only when nothing should reference into it. Symlinks are
+    redirected lexically inside the root and fall back to the disk only when they leave it;
+    `EntryKind::Other` is gone because a socket is simply not in the tree. The one deliberate
+    LSP caveat: an editor buffer for a gitignored file counts as present for that session; the
+    CLI is the CI truth.
 
 ## 13. Research appendix
 

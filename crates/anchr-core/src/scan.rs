@@ -3,13 +3,14 @@
 use std::collections::{BTreeSet, HashSet};
 use std::sync::mpsc;
 
-use camino::Utf8Path;
+use camino::{Utf8Path, Utf8PathBuf};
 use ignore::overrides::OverrideBuilder;
 use ignore::{WalkBuilder, WalkState};
 
 use crate::marker::MarkerPayload;
 use crate::root::{FilePath, Root};
 use crate::text::{AnalyzeError, Container, FileAnalyzer, FileScan, LanguageRegistry};
+use crate::tree::{Entry, FileTree};
 
 /// External roots contribute only anchors: their references are someone else's to check.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -59,6 +60,9 @@ pub struct ScanOutput {
     /// Lowercased extensions of every file the walk reached, parsed or not. `[scan] include`
     /// narrows what is checked, not what exists, so it does not apply here.
     pub extensions: BTreeSet<String>,
+    /// Every file and symlink the walk reached, whatever its container or include status: the
+    /// repository as the scan sees it, which is what a reference target must exist in.
+    pub tree: FileTree,
 }
 
 #[derive(Debug, thiserror::Error)]
@@ -72,14 +76,15 @@ enum Outcome {
     Skipped(SkippedFile),
     Problem(WalkProblem),
     Extension(String),
+    Entry { path: FilePath, entry: Entry },
 }
 
 /// Respects `.gitignore` (with or without a `.git` directory), `.ignore`, and `.anchrignore`;
-/// never follows symlinks. Hidden files are walked like any other (`.claude/skills` is exactly
-/// the documentation this tool exists for); `.git` is always pruned because its internals are
-/// never documentation and their extensions would pollute the coverage extension table.
-/// Excludes are walker overrides; includes are a post-filter, because an include override would
-/// silently un-ignore gitignored files.
+/// never follows symlinks, recording each one with its link text instead. Hidden files are
+/// walked like any other (`.claude/skills` is exactly the documentation this tool exists for);
+/// `.git` is always pruned because its internals are never documentation and their extensions
+/// would pollute the coverage extension table. Excludes are walker overrides; includes are a
+/// post-filter, because an include override would silently un-ignore gitignored files.
 pub fn scan_root(
     root: &Root,
     registry: &LanguageRegistry,
@@ -116,19 +121,25 @@ pub fn scan_root(
                     path: None,
                     message: error.to_string(),
                 })),
-                Ok(entry) => {
-                    if entry.file_type().is_some_and(|kind| kind.is_file()) {
+                Ok(entry) if entry.depth() == 0 => None,
+                Ok(entry) => match relative_path(root, entry.path()) {
+                    Err(problem) => Some(Outcome::Problem(problem)),
+                    Ok(path) if entry.path_is_symlink() => Some(symlink_entry(path, &entry)),
+                    Ok(path) if entry.file_type().is_some_and(|kind| kind.is_file()) => {
+                        let _ = sender.send(Outcome::Entry {
+                            path: path.clone(),
+                            entry: Entry::File,
+                        });
                         if mode == ScanMode::Full
-                            && let Some(extension) = visited_extension(root, entry.path())
-                            && seen_extensions.insert(extension.clone())
+                            && let Some(extension) = path.as_path().extension()
+                            && seen_extensions.insert(extension.to_ascii_lowercase())
                         {
-                            let _ = sender.send(Outcome::Extension(extension));
+                            let _ = sender.send(Outcome::Extension(extension.to_ascii_lowercase()));
                         }
-                        visit_file(root, &mut analyzer, mode, entry.path(), &entry)
-                    } else {
-                        None
+                        visit_file(root, &mut analyzer, mode, path, &entry)
                     }
-                }
+                    Ok(_) => None,
+                },
             };
             if let Some(outcome) = outcome {
                 // The receiver outlives the walk; a send can only fail after it is dropped.
@@ -148,6 +159,7 @@ pub fn scan_root(
             Outcome::Extension(extension) => {
                 output.extensions.insert(extension);
             }
+            Outcome::Entry { path, entry } => output.tree.insert(&path, entry),
         }
     }
     output.files.sort_by(|a, b| a.path.cmp(&b.path));
@@ -158,34 +170,53 @@ pub fn scan_root(
     Ok(output)
 }
 
-fn visited_extension(root: &Root, absolute: &std::path::Path) -> Option<String> {
-    let relative = absolute.strip_prefix(root.dir.as_std_path()).ok()?;
-    let extension = Utf8Path::from_path(relative)?.extension()?;
-    Some(extension.to_ascii_lowercase())
+fn relative_path(root: &Root, absolute: &std::path::Path) -> Result<FilePath, WalkProblem> {
+    let problem = |message: String| WalkProblem {
+        path: Some(absolute.to_string_lossy().into_owned()),
+        message,
+    };
+    let relative = absolute
+        .strip_prefix(root.dir.as_std_path())
+        .map_err(|_| problem("walked path is outside the root".to_owned()))?;
+    let relative = Utf8Path::from_path(relative)
+        .ok_or_else(|| problem("file name is not valid UTF-8".to_owned()))?;
+    FilePath::new(relative.to_path_buf()).map_err(|error| problem(error.to_string()))
+}
+
+/// A symlink is recorded with its link text and never followed; an unreadable one is a problem
+/// rather than silently absent, because absence from the tree reads as "does not exist".
+fn symlink_entry(path: FilePath, entry: &ignore::DirEntry) -> Outcome {
+    match std::fs::read_link(entry.path()).map(Utf8PathBuf::from_path_buf) {
+        Ok(Ok(target)) => Outcome::Entry {
+            path,
+            entry: Entry::Symlink { target },
+        },
+        Ok(Err(_)) => Outcome::Problem(WalkProblem {
+            path: Some(path.to_string()),
+            message: "symlink target is not valid UTF-8".to_owned(),
+        }),
+        Err(error) => Outcome::Problem(WalkProblem {
+            path: Some(path.to_string()),
+            message: format!("could not read symlink: {error}"),
+        }),
+    }
 }
 
 fn visit_file(
     root: &Root,
     analyzer: &mut FileAnalyzer<'_>,
     mode: ScanMode,
-    absolute: &std::path::Path,
+    path: FilePath,
     entry: &ignore::DirEntry,
 ) -> Option<Outcome> {
-    let relative = absolute.strip_prefix(root.dir.as_std_path()).ok()?;
-    let Some(relative) = Utf8Path::from_path(relative) else {
-        return Some(Outcome::Problem(WalkProblem {
-            path: Some(relative.to_string_lossy().into_owned()),
-            message: "file name is not valid UTF-8".to_owned(),
-        }));
-    };
-    let path = FilePath::new(relative.to_path_buf()).ok()?;
-
+    let absolute = entry.path();
     if let Some(include) = &root.config.scan.include
-        && !include.is_match(relative)
+        && !include.is_match(path.as_path())
     {
         return None;
     }
-    let container = Container::for_path(relative, &root.config.containers, analyzer.registry())?;
+    let container =
+        Container::for_path(path.as_path(), &root.config.containers, analyzer.registry())?;
 
     let skipped = |reason: SkipReason| {
         Some(Outcome::Skipped(SkippedFile {
@@ -240,6 +271,8 @@ mod tests {
     use super::*;
     use crate::config::Config;
     use crate::root::RootName;
+    #[cfg(unix)]
+    use crate::tree::Lookup;
 
     struct Fixture {
         _dir: tempfile::TempDir,
@@ -456,11 +489,52 @@ mod tests {
 
     #[cfg(unix)]
     #[test]
-    fn symlinked_directories_are_not_followed() {
+    fn symlinked_directories_are_not_followed_but_are_recorded() {
         let outside = tempfile::tempdir().unwrap();
         std::fs::write(outside.path().join("secret.md"), "@anchor[secret]").unwrap();
         let fixture = Fixture::new(&[("kept.md", "")]);
         std::os::unix::fs::symlink(outside.path(), fixture.root.dir.join("linked")).unwrap();
-        assert_eq!(paths(&fixture.scan(ScanMode::Full).files), vec!["kept.md"]);
+        let output = fixture.scan(ScanMode::Full);
+        assert_eq!(paths(&output.files), vec!["kept.md"]);
+        assert_eq!(output.tree.lookup("linked".into()), Lookup::LeavesRoot);
+        assert_eq!(output.tree.len(), 2);
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn the_tree_records_walked_files_and_symlinks_only() {
+        let mut config = Config::default();
+        config.scan.exclude_patterns = vec!["vendor/**".to_owned()];
+        let fixture = Fixture::with_config(
+            &[
+                (".gitignore", "build/\n"),
+                ("a.md", "@anchor[a]"),
+                ("Cargo.lock", ""),
+                ("sub/deep/x.txt", ""),
+                ("vendor/lib.md", ""),
+                ("build/out.md", ""),
+            ],
+            config,
+        );
+        std::fs::create_dir_all(fixture.root.dir.join("empty")).unwrap();
+        let outside = tempfile::tempdir().unwrap();
+        std::os::unix::fs::symlink("a.md", fixture.root.dir.join("link.md")).unwrap();
+        std::os::unix::fs::symlink(outside.path(), fixture.root.dir.join("outside")).unwrap();
+
+        for mode in [ScanMode::Full, ScanMode::AnchorsOnly] {
+            let tree = fixture.scan(mode).tree;
+            assert_eq!(tree.lookup("Cargo.lock".into()), Lookup::File);
+            assert_eq!(tree.lookup(".gitignore".into()), Lookup::File);
+            assert_eq!(tree.lookup("sub".into()), Lookup::Directory);
+            assert_eq!(tree.lookup("sub/deep".into()), Lookup::Directory);
+            assert_eq!(tree.lookup("link.md".into()), Lookup::File);
+            assert_eq!(tree.lookup("outside".into()), Lookup::LeavesRoot);
+            for absent in ["vendor/lib.md", "vendor", "build/out.md", "build", "empty"] {
+                assert!(
+                    matches!(tree.lookup(absent.into()), Lookup::Missing { .. }),
+                    "{absent} in {mode:?}"
+                );
+            }
+        }
     }
 }

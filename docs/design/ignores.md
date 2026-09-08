@@ -78,7 +78,17 @@ ignore  = ["CLAUDE.md", "AGENTS.md", "anchr"]
 
 **Config.** `exclude` is a list of globs with the same syntax as `[scan] exclude`. A matching file
 is still scanned, indexed, and checked; @[Coverage] generates no candidates for it and counts
-none of its references. `[scan] exclude` remains the knob for "invisible to anchr". `ignore` is a
+none of its references. `[scan] exclude` remains the knob for "invisible to anchr", and invisible
+is total: an excluded path is not scanned, not indexed, and does not exist as a reference target,
+exactly like a gitignored one. Exclude a tree only when nothing should reference into it.
+
+| knob | exists as a target | indexed and checked | coverage proposes |
+|---|---|---|---|
+| gitignored or `.anchrignore`d | no | no | no |
+| `[scan] exclude` | no | no | no |
+| `[coverage] exclude` | yes | yes | no |
+
+`ignore` is a
 list of entries validated by the same @[NoRefEntry] parser as the marker, so a config entry with
 whitespace, a comma, or a duplicate is a config error with a span. `[coverage]` is read from the
 current root only; external roots never run coverage. See @[CoverageConfig].

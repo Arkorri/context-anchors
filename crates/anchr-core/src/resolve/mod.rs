@@ -216,8 +216,8 @@ impl<'a> Resolver<'a> {
             Err(resolution) => return resolution,
         };
         match target {
-            RefTarget::Path { path, expects, .. } => self.resolve_path(root, path, *expects),
-            RefTarget::Symbol { path, name, .. } => self.resolve_symbol(root, path, name),
+            RefTarget::Path { path, expects, .. } => self.resolve_path(root, index, path, *expects),
+            RefTarget::Symbol { path, name, .. } => self.resolve_symbol(root, index, path, name),
             RefTarget::Anchor { id, .. } => resolve_anchor(index, id),
         }
     }
@@ -234,8 +234,8 @@ impl<'a> Resolver<'a> {
                 crate::suggest::suggest(name.as_str(), table.names())
             }
             Unresolved::PathMissing { root, path } => {
-                let (root, _) = self.present(root)?;
-                self.paths.suggest(root, path)
+                let (root, index) = self.present(root)?;
+                self.paths.suggest(root, index.tree(), path)
             }
             Unresolved::RootUndeclared { name } => {
                 crate::suggest::suggest(name.as_str(), self.roots.names().map(RootName::as_str))
@@ -244,6 +244,30 @@ impl<'a> Resolver<'a> {
             | Unresolved::PathNotFile { .. }
             | Unresolved::PathEscapesRoot { .. } => None,
         }
+    }
+
+    /// Why a missing path may nevertheless be on this machine's disk: context for the reader,
+    /// never a fix. The scan decides existence; the disk only explains the disagreement.
+    pub fn explain(&self, unresolved: &Unresolved) -> Option<String> {
+        let Unresolved::PathMissing { root, path } = unresolved else {
+            return None;
+        };
+        let (root, _) = self.present(root)?;
+        let on_disk = std::fs::symlink_metadata(root.dir.join(path.as_path())).ok()?;
+        let is_dir = on_disk.is_dir();
+        Some(
+            match root.config.scan.exclude_matching(path.as_path(), is_dir) {
+                Some(pattern) => format!(
+                    "`{path}` exists on disk, but `[scan] exclude` pattern `{pattern}` keeps it out of the scan; excluded paths cannot be referenced"
+                ),
+                None if is_dir => format!(
+                    "`{path}` exists on disk, but the scan found no files beneath it (empty, or everything in it is ignored); such directories cannot be referenced"
+                ),
+                None => format!(
+                    "`{path}` exists on disk, but is ignored by `.gitignore` or `.anchrignore` rules, so the scan never sees it; ignored files cannot be referenced"
+                ),
+            },
+        )
     }
 
     fn select_root(&self, name: &RootName) -> Result<(&'a Root, &'a Index), Resolution> {
@@ -271,10 +295,11 @@ impl<'a> Resolver<'a> {
     fn resolve_path(
         &mut self,
         root: &Root,
+        index: &Index,
         path: &RelPath,
         expects: PathExpectation,
     ) -> Resolution {
-        match self.paths.locate(root, path) {
+        match self.paths.locate(root, index.tree(), path) {
             path::Located::Missing { .. } => Resolution::Unresolved(Unresolved::PathMissing {
                 root: root.name.clone(),
                 path: path.clone(),
@@ -286,13 +311,21 @@ impl<'a> Resolver<'a> {
                         path: path.clone(),
                     })
                 }
-                _ => Resolution::Resolved,
+                (PathExpectation::Any, _) | (PathExpectation::Directory, EntryKind::Directory) => {
+                    Resolution::Resolved
+                }
             },
         }
     }
 
-    fn resolve_symbol(&mut self, root: &Root, path: &RelPath, name: &SymbolName) -> Resolution {
-        let absolute = match self.paths.locate(root, path) {
+    fn resolve_symbol(
+        &mut self,
+        root: &Root,
+        index: &Index,
+        path: &RelPath,
+        name: &SymbolName,
+    ) -> Resolution {
+        let absolute = match self.paths.locate(root, index.tree(), path) {
             path::Located::Missing { .. } => {
                 return Resolution::Unresolved(Unresolved::PathMissing {
                     root: root.name.clone(),
@@ -354,6 +387,8 @@ fn resolve_anchor(index: &Index, id: &AnchorId) -> Resolution {
 mod tests {
     use std::fs;
 
+    use camino::Utf8Path;
+
     use super::*;
     use crate::config::Config;
     use crate::marker::parse_target;
@@ -368,11 +403,20 @@ mod tests {
     impl World {
         /// `roots` maps root name → files. The first entry is the current root.
         fn new(roots: &[(&str, &[(&str, &str)])]) -> Self {
+            Self::build(roots, Config::default(), |_| {})
+        }
+
+        /// `setup` runs against the current root's directory after the files are written and
+        /// before the scan, for symlinks and empty directories the scan must see.
+        fn build(
+            roots: &[(&str, &[(&str, &str)])],
+            mut current_config: Config,
+            setup: impl FnOnce(&Utf8Path),
+        ) -> Self {
             let dir = tempfile::tempdir().unwrap();
             let base = Utf8PathBuf::from_path_buf(dir.path().to_path_buf()).unwrap();
             let registry = LanguageRegistry::new().unwrap();
 
-            let mut current_config = Config::default();
             for (name, _) in roots.iter().skip(1) {
                 current_config
                     .external_roots
@@ -389,6 +433,7 @@ mod tests {
                 }
             }
             let (current_name, _) = roots[0];
+            setup(&base.join(current_name));
             let root_set = RootSet::load(base.join(current_name), current_config).unwrap();
 
             let mut indexes = BTreeMap::new();
@@ -401,7 +446,7 @@ mod tests {
                 let output = scan_root(root, &registry, mode).unwrap();
                 indexes.insert(
                     root.name.clone(),
-                    Index::from_scan(root.name.clone(), output.files),
+                    Index::from_scan(root.name.clone(), output.files, output.tree),
                 );
             }
             Self {
@@ -417,6 +462,15 @@ mod tests {
             resolver.resolve(self.roots.current_name(), &target)
         }
 
+        fn unresolved(&self, target: &str) -> Unresolved {
+            match self.resolve(target) {
+                Resolution::Unresolved(unresolved) => unresolved,
+                other => panic!("expected unresolved, got {other:?}"),
+            }
+        }
+
+        /// Resolves and suggests with one resolver: symbol suggestions read the cache the
+        /// resolution filled.
         fn suggestion(&self, target: &str) -> Option<String> {
             let mut resolver = Resolver::new(&self.roots, &self.registry);
             let target = parse_target(target).unwrap().target;
@@ -425,6 +479,18 @@ mod tests {
                 other => panic!("expected unresolved, got {other:?}"),
             }
         }
+
+        fn explanation(&self, target: &str) -> Option<String> {
+            let resolver = Resolver::new(&self.roots, &self.registry);
+            resolver.explain(&self.unresolved(target))
+        }
+    }
+
+    fn is_missing(resolution: &Resolution) -> bool {
+        matches!(
+            resolution,
+            Resolution::Unresolved(Unresolved::PathMissing { .. })
+        )
     }
 
     fn world() -> World {
@@ -574,22 +640,99 @@ mod tests {
         assert_eq!(w.suggestion("#completely-different"), None);
     }
 
+    #[test]
+    fn existence_follows_the_scan_not_the_disk() {
+        let mut config = Config::default();
+        config.scan.exclude_patterns = vec!["vendor/**".to_owned()];
+        config.scan.exclude = globset::GlobSetBuilder::new()
+            .add(
+                globset::GlobBuilder::new("vendor/**")
+                    .literal_separator(true)
+                    .build()
+                    .unwrap(),
+            )
+            .build()
+            .unwrap();
+        let w = World::build(
+            &[(
+                "repo",
+                &[
+                    (".gitignore", "build/\nserver/lib/\n"),
+                    ("build/out.md", ""),
+                    ("vendor/lib.md", ""),
+                    ("Cargo.lock", ""),
+                    ("server/lib/x.md", ""),
+                    ("server/app.md", ""),
+                    ("docs/guide.md", ""),
+                ],
+            )],
+            config,
+            |root| fs::create_dir_all(root.join("empty")).unwrap(),
+        );
+        assert_eq!(w.resolve("Cargo.lock"), Resolution::Resolved);
+        assert_eq!(w.resolve("server/"), Resolution::Resolved);
+        assert_eq!(w.resolve("docs/"), Resolution::Resolved);
+        for target in [
+            "build/out.md",
+            "build/",
+            "vendor/lib.md",
+            "vendor/",
+            "empty/",
+            "server/lib",
+            "server/lib/",
+            "server/lib/x.md",
+        ] {
+            assert!(is_missing(&w.resolve(target)), "{target}");
+        }
+        assert_eq!(w.suggestion("build/out.md"), None);
+
+        let excluded = w.explanation("vendor/lib.md").unwrap();
+        assert!(
+            excluded.contains("`[scan] exclude` pattern `vendor/**`"),
+            "{excluded}"
+        );
+        let ignored = w.explanation("build/out.md").unwrap();
+        assert!(ignored.contains("ignored by `.gitignore`"), "{ignored}");
+        let empty = w.explanation("empty/").unwrap();
+        assert!(empty.contains("no files beneath it"), "{empty}");
+        assert_eq!(w.explanation("docs/nope.md"), None);
+    }
+
     #[cfg(unix)]
     #[test]
-    fn a_symlink_escaping_the_root_is_never_read() {
-        let w = world();
-        let (root, _) = w.roots.current();
+    fn symlinks_redirect_inside_the_root_and_fall_back_to_the_disk_outside_it() {
         let outside = tempfile::tempdir().unwrap();
         fs::write(outside.path().join("secret.rs"), "fn leaked() {}").unwrap();
-        std::os::unix::fs::symlink(
-            outside.path().join("secret.rs"),
-            root.dir.join("src/link.rs"),
-        )
-        .unwrap();
+        let outside_dir = outside.path().to_path_buf();
+        let w = World::build(
+            &[(
+                "repo",
+                &[
+                    ("docs/guide.md", "# Guide"),
+                    ("src/auth.rs", "pub fn validate_token() {}"),
+                ],
+            )],
+            Config::default(),
+            move |root| {
+                use std::os::unix::fs::symlink;
+                symlink(outside_dir.join("secret.rs"), root.join("src/link.rs")).unwrap();
+                symlink("/nonexistent", root.join("src/dangling.rs")).unwrap();
+                symlink("auth.rs", root.join("src/alias.rs")).unwrap();
+                symlink("docs", root.join("docs-link")).unwrap();
+            },
+        );
         assert!(matches!(
             w.resolve("src/link.rs#leaked"),
             Resolution::Unresolved(Unresolved::PathEscapesRoot { .. })
         ));
         assert_eq!(w.resolve("src/link.rs"), Resolution::Resolved);
+        assert!(is_missing(&w.resolve("src/dangling.rs")));
+        assert_eq!(
+            w.resolve("src/alias.rs#validate_token"),
+            Resolution::Resolved
+        );
+        assert_eq!(w.resolve("docs-link/guide.md"), Resolution::Resolved);
+        assert_eq!(w.resolve("docs-link/"), Resolution::Resolved);
+        assert!(is_missing(&w.resolve("docs-link/nope.md")));
     }
 }

@@ -133,6 +133,50 @@ fn symlinks_are_not_followed() {
     assert_eq!(names, vec!["kept.md"]);
 }
 
+#[cfg(unix)]
+#[test]
+fn symlinks_are_yielded_as_entries_and_flagged_without_being_descended() {
+    let dir = tempfile::tempdir().unwrap();
+    write(&dir.path().join("docs/guide.md"), "");
+    write(&dir.path().join("a.md"), "");
+    std::os::unix::fs::symlink("docs", dir.path().join("link")).unwrap();
+    std::os::unix::fs::symlink("a.md", dir.path().join("link.md")).unwrap();
+
+    let (sender, receiver) = mpsc::channel();
+    base_walker(dir.path()).build_parallel().run(|| {
+        let sender = sender.clone();
+        Box::new(move |entry| {
+            if let Ok(entry) = entry
+                && entry.depth() > 0
+            {
+                sender
+                    .send((
+                        entry.file_name().to_string_lossy().into_owned(),
+                        entry.path_is_symlink(),
+                        entry.file_type().is_some_and(|kind| kind.is_file()),
+                    ))
+                    .unwrap();
+            }
+            WalkState::Continue
+        })
+    });
+    drop(sender);
+    let mut entries: Vec<(String, bool, bool)> = receiver.iter().collect();
+    entries.sort();
+
+    assert_eq!(
+        entries,
+        vec![
+            ("a.md".to_owned(), false, true),
+            ("docs".to_owned(), false, false),
+            ("guide.md".to_owned(), false, true),
+            ("link".to_owned(), true, false),
+            ("link.md".to_owned(), true, false),
+        ],
+        "a symlink is one entry flagged by path_is_symlink, never a file, never descended"
+    );
+}
+
 #[test]
 fn a_panic_in_a_visitor_propagates_to_the_caller() {
     let dir = tempfile::tempdir().unwrap();
