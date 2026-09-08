@@ -204,16 +204,15 @@ fn region_name(region: RegionKind) -> &'static str {
     }
 }
 
-/// The `coverage` report.
+/// The `coverage` report: one entry per token and verdict, with every site.
 pub fn write_coverage(
     out: &mut impl Write,
     index: &Index,
     report: &CoverageReport,
 ) -> anyhow::Result<()> {
     let mut candidates = Vec::with_capacity(report.candidates.len());
-    for candidate in &report.candidates {
-        let located = locate(index, candidate.site.clone())?;
-        let (kind, replacement, reason) = match &candidate.kind {
+    for group in &report.candidates {
+        let (kind, replacement, reason) = match &group.kind {
             CandidateKind::Proposal { replacement } => {
                 ("proposal", Some(replacement.clone()), None)
             }
@@ -221,12 +220,10 @@ pub fn write_coverage(
             CandidateKind::UnusedAlias { .. } => ("unused-alias", None, None),
             CandidateKind::UnusedIgnore { .. } => ("unused-ignore", None, None),
         };
-        candidates.push(JsonCandidate {
-            kind,
-            text: candidate.text.clone(),
-            replacement,
-            reason,
-            location: JsonOwnedLocation {
+        let mut sites = Vec::with_capacity(group.sites.len());
+        for candidate in &group.sites {
+            let located = locate(index, candidate.site.clone())?;
+            sites.push(JsonCandidateSite {
                 root: located.site.root.to_string(),
                 path: located.site.path.to_string(),
                 line: located.line_col.line,
@@ -234,7 +231,16 @@ pub fn write_coverage(
                 byte_start: located.site.span.start,
                 byte_end: located.site.span.end,
                 region: region_name(located.site.region),
-            },
+                text: candidate.text.clone(),
+            });
+        }
+        candidates.push(JsonCandidateGroup {
+            kind,
+            text: group.token.clone(),
+            replacement,
+            reason,
+            count: sites.len(),
+            sites,
         });
     }
     let json = JsonCoverage {
@@ -264,7 +270,7 @@ pub fn write_coverage(
 struct JsonCoverage {
     schema: u32,
     summary: JsonCoverageSummary,
-    candidates: Vec<JsonCandidate>,
+    candidates: Vec<JsonCandidateGroup>,
     /// `[coverage] ignore` entries that matched nothing; they have no location.
     #[serde(skip_serializing_if = "Vec::is_empty")]
     unused_config_ignores: Vec<String>,
@@ -282,18 +288,20 @@ struct JsonCoverageSummary {
 }
 
 #[derive(Serialize)]
-struct JsonCandidate {
+struct JsonCandidateGroup {
     kind: &'static str,
+    /// The token without the backticks a code span adds; each site carries its exact text.
     text: String,
     #[serde(skip_serializing_if = "Option::is_none")]
     replacement: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
     reason: Option<String>,
-    location: JsonOwnedLocation,
+    count: usize,
+    sites: Vec<JsonCandidateSite>,
 }
 
 #[derive(Serialize)]
-struct JsonOwnedLocation {
+struct JsonCandidateSite {
     root: String,
     path: String,
     line: u32,
@@ -301,6 +309,7 @@ struct JsonOwnedLocation {
     byte_start: usize,
     byte_end: usize,
     region: &'static str,
+    text: String,
 }
 
 /// Stable identifiers for consumers; adding a kind adds a code, never renames one.

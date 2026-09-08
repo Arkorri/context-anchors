@@ -185,9 +185,9 @@ as extra locations, and the language server attaches the use sites as related in
 Grouping is unchanged.
 
 **Unused.** A declared alias with zero uses is reported by `anchr coverage`
-(@ref[crates/anchr-core/src/coverage/mod.rs]) as an advisory line and JSON candidate kind
-`unused-alias`. @[Check] never reports it: check's contract is soundness of what is asserted, and
-an unused import asserts nothing false.
+(@ref[crates/anchr-core/src/coverage/mod.rs]) as an advisory candidate group of kind
+`unused-alias`, its one site the declaration. @[Check] never reports it: check's contract is
+soundness of what is asserted, and an unused import asserts nothing false.
 
 **Diagnostics are keyed by file.** `AliasUndeclared` and `AliasDuplicate` carry the file path in
 their @ref[crates/anchr-core/src/diagnostic.rs#DiagnosticKind] key, because the file *is* the

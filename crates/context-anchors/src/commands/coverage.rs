@@ -1,8 +1,7 @@
 use std::io::Write;
 
-use anchr_core::check::{Workspace, locate};
-use anchr_core::config::CONFIG_FILE_NAME;
-use anchr_core::coverage::{CandidateKind, coverage};
+use anchr_core::check::Workspace;
+use anchr_core::coverage::coverage;
 
 use super::{Outcome, current_dir, discover, files_in_root};
 use crate::cli::{CoverageArgs, Format};
@@ -21,52 +20,7 @@ pub fn run(args: &CoverageArgs) -> anyhow::Result<Outcome> {
     let mut stdout = anstream::stdout().lock();
     match args.format {
         Format::Json => render::json::write_coverage(&mut stdout, index, &report)?,
-        Format::Human => {
-            for candidate in &report.candidates {
-                let located = locate(index, candidate.site.clone())?;
-                let verdict = match &candidate.kind {
-                    CandidateKind::Proposal { replacement } => format!("could be {replacement}"),
-                    CandidateKind::Unresolvable { reason } => format!("does not resolve: {reason}"),
-                    CandidateKind::UnusedAlias { .. } => "alias declared but never used".to_owned(),
-                    CandidateKind::UnusedIgnore { .. } => "ignored but never matched".to_owned(),
-                };
-                writeln!(
-                    stdout,
-                    "{}:{}: {} — {verdict}",
-                    located.site.path, located.line_col, candidate.text
-                )?;
-            }
-            for entry in &report.unused_config_ignores {
-                writeln!(
-                    stdout,
-                    "{CONFIG_FILE_NAME}: {entry} — ignored but never matched"
-                )?;
-            }
-            let summary = report.summary;
-            let unused_aliases = match summary.unused_aliases {
-                0 => String::new(),
-                1 => "; 1 alias is declared but never used".to_owned(),
-                n => format!("; {n} aliases are declared but never used"),
-            };
-            let ignored = match summary.ignored {
-                0 => String::new(),
-                1 => "; 1 string ignored".to_owned(),
-                n => format!("; {n} strings ignored"),
-            };
-            let unused_ignores = match summary.unused_ignores {
-                0 => String::new(),
-                1 => "; 1 ignore entry never matched".to_owned(),
-                n => format!("; {n} ignore entries never matched"),
-            };
-            writeln!(
-                stdout,
-                "{} of {} reference-shaped strings are annotated; {} could be, {} do not resolve{unused_aliases}{ignored}{unused_ignores}",
-                summary.annotated_refs,
-                summary.total(),
-                summary.proposals,
-                summary.unresolvable,
-            )?;
-        }
+        Format::Human => render::coverage::write(&mut stdout, index, &report)?,
     }
     stdout.flush()?;
     Ok(Outcome::Clean)

@@ -6,8 +6,7 @@ use std::io::Write;
 use anchr_core::diagnostic::{Diagnostic, Locations, Report, Severity};
 use annotate_snippets::{AnnotationKind, Group, Level, Origin, Renderer, Snippet};
 
-/// Sites beyond this many are summarized as a count.
-const MAX_LISTED_SITES: usize = 40;
+use super::MAX_LISTED_SITES;
 
 pub fn write(out: &mut impl Write, report: &Report) -> std::io::Result<()> {
     let renderer = Renderer::styled();
