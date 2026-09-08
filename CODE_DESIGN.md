@@ -877,9 +877,8 @@ Refinements the code made to the design above, recorded so the document stays th
 5. **The lexer's body class excludes `[`**, so an unclosed opener cannot swallow the next
    marker; each opener gets its own diagnostic.
 6. **@[Coverage] sees more than @[Check] lexes**: markdown code spans (`RegionKind::InlineCode`)
-   and raw comment nodes, minus link destinations and fences. Identifiers in code spans are
-   placed via a symbol index over every scanned source file: one declaring file ⇒ proposal,
-   several ⇒ ambiguous, none ⇒ ignored. A path token is a candidate when it ends in `/` (a
+   and raw comment nodes, minus link destinations and fences. A code span is a candidate only
+   when its whole content is one path (item 16). A path token is a candidate when it ends in `/` (a
    `/*` or `/**` tail counts and is proposed as the directory) or its last segment is
    `stem.ext` with an extension from the table in item 15; the stem must contain a letter and
    the pieces cannot all be single characters, so `line/col`, `Apache-2.0/MIT`, `v1.1`, and
@@ -925,7 +924,7 @@ Refinements the code made to the design above, recorded so the document stays th
     index block at the top is the first user.
 14. **@[Coverage] ignores.** Once the repository was annotated, most remaining coverage candidates
     were classified correctly and still were not references: example paths, files that exist in
-    a user's repository, the product name. `@noref[a, b/]` declares them per file and
+    a user's repository. `@noref[a, b/]` declares them per file and
     `[coverage] ignore` / `exclude` per root; both share one exact matcher
     (@ref[crates/anchr-core/src/noref.rs#NoRefSet]) and every entry that matches nothing is
     reported, the way an unused alias is. @[Check] lexes the marker and otherwise never sees it.
@@ -942,6 +941,19 @@ Refinements the code made to the design above, recorded so the document stays th
     (`crates.io`) and extensions that double as method names once such a file exists
     (@ref[Cargo.lock]); both are correct shapes for `[coverage] ignore`. On this repository the
     unresolvable bucket went from 32 rows, all prose, to 0.
+16. **Bare code symbols are not coverage candidates.** With paths precise, every remaining row on
+    this repository (48) was a backticked identifier placed by name against a flat index of every
+    declaration in the root: 22 were parameters, fields, or sibling methods named in their own
+    doc comment, 15 of those proposing an unrelated same-named declaration that @[Check] would
+    have accepted; 15 were module and subcommand names used as words; 6 duplicated rustdoc links;
+    1 was a real miss. A name has no single referent, so the tool cannot know which declaration
+    the author meant, and the collision rate grows with the codebase. Language doc links are no
+    fallback: of the five supported languages only rustdoc checks them, and only under
+    `cargo doc`. The symbol index and identifier tokens are gone from coverage; @[Check] and the
+    LSP keep resolving `file#Name` through @ref[crates/anchr-core/src/resolve/symbol.rs]. Symbols
+    enter coverage through an alias declaration, after which every use in that file is proposed,
+    unique by construction. @[Coverage] no longer parses every source file per run. On this
+    repository: 307 of 355 annotated, 27 could be, 21 ambiguous → 307 of 307, no candidates.
 
 ## 13. Research appendix
 

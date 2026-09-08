@@ -19,13 +19,13 @@ remaining coverage candidates visible) and @ref[CODE_DESIGN.md] (the pipeline th
 and the genuine misses in this repository were annotated, about two thirds of what remained was
 classified *correctly* and was still not a reference: archived research documents, files that
 exist in a user's repository rather than this one (`CLAUDE.md`, `AGENTS.md`), example paths in
-templates and READMEs, and the product name used as a word. No tokenizer can tell those apart
-from real misses. Only the author can, and the author had no way to say so, which meant the
+templates and READMEs. No tokenizer can tell those apart from real misses. Only the author can, and the author had no way to say so, which meant the
 report never reached zero and stopped being read.
 
 The remaining third was classifier defect, not ignore material: `line/col` prose read as a path
-(fixed since by the path-shape rule, @ref[CODE_DESIGN.md] §12a item 15) and short identifiers
-matched to the wrong declaration (still open). The rule for authors: **if the tool guessed wrong,
+and short identifiers matched to the wrong declaration. Both are fixed since, by the path-shape
+rule and by dropping bare identifiers from coverage (@ref[CODE_DESIGN.md] §12a items 15 and 16).
+The rule for authors: **if the tool guessed wrong,
 fix the tool; if it guessed right and you disagree, ignore it.** An ignore list that absorbs
 classifier bugs hides real mentions elsewhere.
 
@@ -98,9 +98,9 @@ Nothing else: no substrings, no globs, no case folding, and a bare `Name` does n
 `src/file.ts#Name`. An ignore list is a vocabulary, and vocabularies are exact. If templates with
 many placeholder paths ever make globs necessary, that is a separate key, not a `*` in this one.
 
-Matching applies to every candidate source: path tokens, identifier tokens, and alias-word
-matches. `@noref[Scope]` therefore also suppresses an alias `Scope` matching English prose,
-although renaming the alias is the better fix.
+Matching applies to both candidate sources: path tokens and alias-word matches. `@noref[Scope]`
+therefore also suppresses an alias `Scope` matching English prose, although renaming the alias is
+the better fix.
 
 **Counting.** Suppressed tokens are counted as `ignored` and left out of the total: the author has
 said they are not reference-shaped. Excluded files contribute nothing to either side of the

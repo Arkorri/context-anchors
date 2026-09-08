@@ -53,11 +53,15 @@ fn coverage_reports_candidates_and_never_fails() {
         .args(["coverage", "--color", "never"])
         .assert()
         .code(0)
-        .stdout(predicate::str::contains("README.md:1:5: `docs/guide.md` — could be @ref[docs/guide.md]"))
-        .stdout(predicate::str::contains("docs/missing.md — does not resolve"))
-        .stdout(predicate::str::contains("`run_check` — could be @ref[src/lib.rs#run_check]"))
         .stdout(predicate::str::contains(
-            "1 of 4 reference-shaped strings are annotated; 2 could be, 1 do not resolve, 0 are ambiguous",
+            "README.md:1:5: `docs/guide.md` — could be @ref[docs/guide.md]",
+        ))
+        .stdout(predicate::str::contains(
+            "docs/missing.md — does not resolve",
+        ))
+        .stdout(predicate::str::contains("run_check").not())
+        .stdout(predicate::str::contains(
+            "1 of 3 reference-shaped strings are annotated; 1 could be, 1 do not resolve",
         ));
 
     let output = fixture
@@ -68,10 +72,11 @@ fn coverage_reports_candidates_and_never_fails() {
     assert_eq!(output.status.code(), Some(0));
     let json: serde_json::Value = serde_json::from_slice(&output.stdout).unwrap();
     assert_eq!(json["schema"], 1);
-    assert_eq!(json["summary"]["total"], 4);
-    assert_eq!(json["summary"]["proposals"], 2);
+    assert_eq!(json["summary"]["total"], 3);
+    assert_eq!(json["summary"]["proposals"], 1);
+    assert!(json["summary"].get("ambiguous").is_none());
     let candidates = json["candidates"].as_array().unwrap();
-    assert_eq!(candidates.len(), 3);
+    assert_eq!(candidates.len(), 2);
     assert_eq!(candidates[0]["kind"], "proposal");
     assert_eq!(candidates[0]["location"]["region"], "inline-code");
     assert_eq!(candidates[1]["kind"], "unresolvable");
@@ -95,7 +100,7 @@ fn alias_words_are_proposed_and_unused_aliases_are_listed() {
         .stdout(predicate::str::contains("docs/a.md:2:20: `Guide` — could be @[Guide]"))
         .stdout(predicate::str::contains("Spare — alias declared but never used"))
         .stdout(predicate::str::contains(
-            "3 of 5 reference-shaped strings are annotated; 2 could be, 0 do not resolve, 0 are ambiguous; 1 alias is declared but never used",
+            "3 of 5 reference-shaped strings are annotated; 2 could be, 0 do not resolve; 1 alias is declared but never used",
         ));
 
     let output = fixture
@@ -163,7 +168,7 @@ fn ignores_suppress_candidates_and_unused_entries_are_reported() {
         ))
         .stdout(predicate::str::contains("archive/old.md").not())
         .stdout(predicate::str::contains(
-            "1 of 2 reference-shaped strings are annotated; 1 could be, 0 do not resolve, 0 are ambiguous; 2 strings ignored; 2 ignore entries never matched",
+            "1 of 2 reference-shaped strings are annotated; 1 could be, 0 do not resolve; 2 strings ignored; 2 ignore entries never matched",
         ));
 
     let output = fixture
@@ -228,7 +233,7 @@ fn annotate_only_writes_with_the_flag_and_the_result_passes_check() {
             "README.md:1:5: `docs/guide.md` -> @ref[docs/guide.md]",
         ))
         .stdout(predicate::str::contains(
-            "2 proposals; pass --write to apply",
+            "1 proposal; pass --write to apply",
         ));
     assert!(fixture.read("README.md").contains("`docs/guide.md`"));
 
@@ -238,10 +243,10 @@ fn annotate_only_writes_with_the_flag_and_the_result_passes_check() {
         .assert()
         .code(0)
         .stdout(predicate::str::contains("edited README.md"))
-        .stdout(predicate::str::contains("annotated 2 references"));
+        .stdout(predicate::str::contains("annotated 1 reference"));
     assert_eq!(
         fixture.read("README.md"),
-        "See @ref[docs/guide.md] and docs/missing.md; call @ref[src/lib.rs#run_check]. Already @ref[docs/guide.md].\n"
+        "See @ref[docs/guide.md] and docs/missing.md; call `run_check`. Already @ref[docs/guide.md].\n"
     );
 
     fixture
@@ -256,7 +261,7 @@ fn annotate_only_writes_with_the_flag_and_the_result_passes_check() {
         .assert()
         .code(0)
         .stdout(predicate::str::contains(
-            "3 of 4 reference-shaped strings are annotated",
+            "2 of 3 reference-shaped strings are annotated",
         ));
 }
 
@@ -325,7 +330,6 @@ fn prose_word_pairs_are_not_reference_shaped() {
         "total",
         "proposals",
         "unresolvable",
-        "ambiguous",
         "unused_aliases",
         "ignored",
         "unused_ignores",

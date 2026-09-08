@@ -27,14 +27,6 @@ static PATH_TOKEN: LazyLock<Regex> = LazyLock::new(|| {
     .expect("path token regex is a valid literal")
 });
 
-static IDENTIFIER: LazyLock<Regex> = LazyLock::new(|| {
-    #[expect(
-        clippy::expect_used,
-        reason = "the pattern is a literal, checked by tests"
-    )]
-    Regex::new(r"^[A-Za-z_$][A-Za-z0-9_$]*$").expect("identifier regex is a valid literal")
-});
-
 /// An identifier-shaped word; matched against the file's declared aliases.
 static WORD: LazyLock<Regex> = LazyLock::new(|| {
     #[expect(
@@ -85,7 +77,6 @@ pub(crate) enum PathShape {
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub(crate) enum Shape {
     Path(PathShape),
-    Identifier,
     /// A word equal to an alias this file declares: the highest-confidence candidate there is.
     Alias(Alias),
 }
@@ -198,31 +189,21 @@ fn alias_words<'t>(
     })
 }
 
-/// A code span whose entire content is one path or one identifier.
+/// A code span whose entire content is one path. A bare identifier is never a candidate: a name
+/// has no single referent, so the tool cannot know which declaration the author meant.
 fn code_span_token(span_text: &str, span: ByteSpan, known: KnownExtensions<'_>) -> Option<Token> {
     let content = span_text.trim_matches('`').trim();
-    if content.is_empty() {
-        return None;
-    }
-    if PATH_TOKEN
+    let is_whole_path = PATH_TOKEN
         .find(content)
-        .is_some_and(|m| m.as_str() == content)
-        && let Some(shape) = path_shape(content, known)
-    {
-        return Some(Token {
-            span,
-            text: content.to_owned(),
-            shape: Shape::Path(shape),
-        });
-    }
-    if IDENTIFIER.is_match(content) && content.len() >= 3 {
-        return Some(Token {
-            span,
-            text: content.to_owned(),
-            shape: Shape::Identifier,
-        });
-    }
-    None
+        .is_some_and(|m| m.as_str() == content);
+    let shape = is_whole_path
+        .then(|| path_shape(content, known))
+        .flatten()?;
+    Some(Token {
+        span,
+        text: content.to_owned(),
+        shape: Shape::Path(shape),
+    })
 }
 
 fn path_tokens<'t>(text: &'t str, known: KnownExtensions<'t>) -> impl Iterator<Item = Token> + 't {
@@ -319,7 +300,7 @@ mod tests {
         path_tokens(text, KnownExtensions::new(repo))
             .map(|token| match token.shape {
                 Shape::Path(shape) => (token.text, shape),
-                Shape::Identifier | Shape::Alias(_) => unreachable!("path tokens only"),
+                Shape::Alias(_) => unreachable!("path tokens only"),
             })
             .collect()
     }
@@ -464,8 +445,9 @@ mod tests {
         assert_eq!(span_shape("`*.generated.ts`"), None);
         assert_eq!(span_shape("`My Notes.md`"), None);
         assert_eq!(span_shape("`e.g`"), None);
-        assert_eq!(span_shape("`run_check`"), Some(Shape::Identifier));
-        assert_eq!(span_shape("`ab`"), None);
+        assert_eq!(span_shape("`run_check`"), None);
+        assert_eq!(span_shape("`HashMap`"), None);
+        assert_eq!(span_shape("``"), None);
     }
 
     #[test]

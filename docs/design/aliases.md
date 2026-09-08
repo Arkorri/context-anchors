@@ -10,7 +10,7 @@
 @ref[#cli/backrefs as Backrefs]
 @ref[#cli/annotate as Annotate]
 @ref[#cli/init as Init]
-@noref[src/as/x.rs, docs/x.md, alias_uses, Alias]
+@noref[src/as/x.rs, docs/x.md]
 
 ## 1. Problem
 
@@ -22,10 +22,11 @@ authoring cost of the grammar. A qualified symbol reference is about fifty chara
 ```
 
 A document that mentions @[FileAnalyzer] ten times will get one such reference and nine backticked
-mentions. Those nine are exactly the rot the tool exists to catch, and today neither @[Check] nor
-@[Coverage] can see them: @[Check] only knows about markers, and @[Coverage] classifies a
-backticked identifier that resolves nowhere as "ignored", because most backticked words are
-`HashMap`.
+mentions. Those nine are exactly the rot the tool exists to catch, and without a declaration
+neither @[Check] nor @[Coverage] can see them: @[Check] only knows about markers, and
+@[Coverage] never treats a bare identifier as a candidate, because most backticked words are
+`HashMap` and the ones that do name a declaration have no single referent
+(@ref[CODE_DESIGN.md] §12a item 16).
 
 The convention adopted in the dogfood pass, "annotate the first mention per section", papers over
 this and fails the one test an authoring rule has to pass: the writer cannot decide from the
@@ -304,8 +305,6 @@ file's aliases. No new filesystem reads. The lexer stays a single linear-time re
 - **A "not a reference" marker** for acknowledging coverage candidates. Shipped since, as `@noref`
   plus `[coverage] ignore`, once the annotated repository showed that most remaining candidates
   were correctly classified and still not references: @ref[docs/design/ignores.md].
-- **Smarter @[Annotate].** Propose a declaration plus uses for repeated identifiers instead of N
-  qualified references. Needs aliases to exist first.
 - **CLI alias rename.** `anchr rename` stays anchor-only; file-local rename is a language-server
   operation until a CLI need appears.
 - **Warning severity in @[Check].** Unused aliases would be the first warning. @[Coverage] is the

@@ -213,28 +213,19 @@ pub fn write_coverage(
     let mut candidates = Vec::with_capacity(report.candidates.len());
     for candidate in &report.candidates {
         let located = locate(index, candidate.site.clone())?;
-        let (kind, replacement, reason, declared_in) = match &candidate.kind {
+        let (kind, replacement, reason) = match &candidate.kind {
             CandidateKind::Proposal { replacement } => {
-                ("proposal", Some(replacement.clone()), None, Vec::new())
+                ("proposal", Some(replacement.clone()), None)
             }
-            CandidateKind::Unresolvable { reason } => {
-                ("unresolvable", None, Some(reason.clone()), Vec::new())
-            }
-            CandidateKind::Ambiguous { declared_in } => (
-                "ambiguous",
-                None,
-                None,
-                declared_in.iter().map(ToString::to_string).collect(),
-            ),
-            CandidateKind::UnusedAlias { .. } => ("unused-alias", None, None, Vec::new()),
-            CandidateKind::UnusedIgnore { .. } => ("unused-ignore", None, None, Vec::new()),
+            CandidateKind::Unresolvable { reason } => ("unresolvable", None, Some(reason.clone())),
+            CandidateKind::UnusedAlias { .. } => ("unused-alias", None, None),
+            CandidateKind::UnusedIgnore { .. } => ("unused-ignore", None, None),
         };
         candidates.push(JsonCandidate {
             kind,
             text: candidate.text.clone(),
             replacement,
             reason,
-            declared_in,
             location: JsonOwnedLocation {
                 root: located.site.root.to_string(),
                 path: located.site.path.to_string(),
@@ -253,7 +244,6 @@ pub fn write_coverage(
             total: report.summary.total(),
             proposals: report.summary.proposals,
             unresolvable: report.summary.unresolvable,
-            ambiguous: report.summary.ambiguous,
             unused_aliases: report.summary.unused_aliases,
             ignored: report.summary.ignored,
             unused_ignores: report.summary.unused_ignores,
@@ -286,7 +276,6 @@ struct JsonCoverageSummary {
     total: usize,
     proposals: usize,
     unresolvable: usize,
-    ambiguous: usize,
     unused_aliases: usize,
     ignored: usize,
     unused_ignores: usize,
@@ -300,8 +289,6 @@ struct JsonCandidate {
     replacement: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
     reason: Option<String>,
-    #[serde(skip_serializing_if = "Vec::is_empty")]
-    declared_in: Vec<String>,
     location: JsonOwnedLocation,
 }
 
