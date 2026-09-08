@@ -13,7 +13,7 @@ use crate::index::{Index, Site};
 use crate::marker::Alias;
 use crate::resolve::{IndexedRoot, IndexedRoots, Resolution, Resolver};
 use crate::root::{FilePath, RootName, RootSet, RootSetError};
-use crate::scan::{ScanError, ScanMode, SkippedFile, WalkProblem, scan_root};
+use crate::scan::{ScanMode, SkippedFile, WalkProblem, scan_root};
 use crate::span::PositionOverflow;
 use crate::suggest::suggest;
 use crate::text::{AnalyzeError, Container, FileAnalyzer, LanguageRegistry, RegistryError};
@@ -35,12 +35,6 @@ pub enum CheckError {
     Roots(#[from] RootSetError),
     #[error(transparent)]
     Registry(#[from] RegistryError),
-    #[error("scanning root `{root}`: {source}")]
-    Scan {
-        root: RootName,
-        #[source]
-        source: ScanError,
-    },
     #[error("a marker offset exceeded the addressable range: {0}")]
     Position(#[from] PositionOverflow),
 }
@@ -80,10 +74,7 @@ impl Workspace {
             } else {
                 ScanMode::AnchorsOnly
             };
-            let output = scan_root(root, &registry, mode).map_err(|source| CheckError::Scan {
-                root: root.name.clone(),
-                source,
-            })?;
+            let output = scan_root(root, &registry, mode);
             let crate::scan::ScanOutput {
                 files,
                 skipped,

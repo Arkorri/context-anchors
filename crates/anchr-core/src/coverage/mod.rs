@@ -88,7 +88,7 @@ pub struct CoverageSummary {
     /// Tokens an ignore list suppressed. The author has said they are not references, so they
     /// are not part of `total` either.
     pub ignored: usize,
-    /// `@noref` entries plus `[coverage] ignore` entries that matched nothing.
+    /// `@noref` entries plus `[ignore] tokens` entries that matched nothing.
     pub unused_ignores: usize,
 }
 
@@ -104,7 +104,7 @@ pub struct CoverageReport {
     /// Proposals first, then unresolvable strings, then the advisories; within a kind the
     /// groups with the most sites come first, ties broken by token.
     pub candidates: Vec<CandidateGroup>,
-    /// `[coverage] ignore` entries that matched nothing. Not candidates: they have no site in
+    /// `[ignore] tokens` entries that matched nothing. Not candidates: they have no site in
     /// an indexed file.
     pub unused_config_ignores: Vec<NoRefEntry>,
     pub summary: CoverageSummary,
@@ -172,9 +172,8 @@ fn group(findings: Vec<Finding>) -> Vec<CandidateGroup> {
     groups
 }
 
-/// Scans the current root. `only_files` and `[coverage] exclude` narrow which files are scanned
-/// for candidates and counted. A file that cannot be read or analyzed is skipped: coverage
-/// informs, it never fails.
+/// Scans the current root. `only_files` narrows which files are scanned for candidates and
+/// counted. A file that cannot be read or analyzed is skipped: coverage informs, it never fails.
 pub fn coverage(workspace: &Workspace, only_files: &[FilePath]) -> CoverageReport {
     let (root, index) = workspace.current();
     let mut analyzer = FileAnalyzer::new(&workspace.registry, root.config.scan.parse_budget);
@@ -186,11 +185,8 @@ pub fn coverage(workspace: &Workspace, only_files: &[FilePath]) -> CoverageRepor
             .get(&root.name)
             .map_or(&no_extensions, |findings| &findings.extensions),
     );
-    let excluded = &root.config.coverage.exclude;
-    let in_scope = |path: &FilePath| {
-        (only_files.is_empty() || only_files.contains(path)) && !excluded.is_match(path.as_path())
-    };
-    let mut global = NoRefSet::new(root.config.coverage.ignore.iter().cloned());
+    let in_scope = |path: &FilePath| only_files.is_empty() || only_files.contains(path);
+    let mut global = NoRefSet::new(root.config.ignore.tokens.iter().cloned());
 
     let mut paths: Vec<&FilePath> = index.file_paths().filter(|path| in_scope(path)).collect();
     paths.sort();
@@ -792,19 +788,19 @@ mod tests {
     }
 
     #[test]
-    fn config_ignore_and_exclude_apply_across_files_and_report_unused_entries() {
+    fn config_tokens_apply_across_files_and_report_unused_entries() {
         let fixture = Fixture::new(&[
             (
                 "anchr.toml",
-                "[coverage]\nexclude = [\"archive/**\"]\nignore = [\"CLAUDE.md\", \"never.md\"]\n",
+                "[ignore]\ntokens = [\"CLAUDE.md\", \"never.md\", \"**/AGENTS.md\"]\n",
             ),
             (
                 "docs/a.md",
                 "See `CLAUDE.md` and `docs/guide.md`. @ref[docs/guide.md]\n",
             ),
             (
-                "archive/old.md",
-                "See `docs/guide.md` and CLAUDE.md. @ref[docs/guide.md]\n",
+                "docs/b.md",
+                "See `docs/guide.md`, CLAUDE.md, and docs/AGENTS.md. @ref[docs/guide.md]\n",
             ),
             ("docs/guide.md", "# Guide\n"),
         ]);
@@ -812,11 +808,18 @@ mod tests {
         let report = coverage(&workspace, &[]);
         assert_eq!(
             describe(&report),
-            vec![row(
-                "docs/a.md",
-                "`docs/guide.md`",
-                "propose @ref[docs/guide.md]"
-            )]
+            vec![
+                row(
+                    "docs/a.md",
+                    "`docs/guide.md`",
+                    "propose @ref[docs/guide.md]"
+                ),
+                row(
+                    "docs/b.md",
+                    "`docs/guide.md`",
+                    "propose @ref[docs/guide.md]"
+                ),
+            ]
         );
         assert_eq!(
             report
@@ -826,16 +829,14 @@ mod tests {
                 .collect::<Vec<_>>(),
             vec!["never.md"]
         );
-        assert_eq!(report.summary.ignored, 1);
+        assert_eq!(report.summary.ignored, 3);
         assert_eq!(report.summary.unused_ignores, 1);
-        assert_eq!(report.summary.annotated_refs, 1);
-        assert_eq!(report.summary.total(), 2);
+        assert_eq!(report.summary.annotated_refs, 2);
+        assert_eq!(report.summary.total(), 4);
 
-        let (_, index) = workspace.current();
-        assert_eq!(index.refs().count(), 2, "excluded files are still indexed");
-        let archive = FilePath::new(Utf8PathBuf::from("archive/old.md")).unwrap();
-        let narrowed = coverage(&workspace, &[archive]);
-        assert!(narrowed.candidates.is_empty());
+        let only_a = FilePath::new(Utf8PathBuf::from("docs/a.md")).unwrap();
+        let narrowed = coverage(&workspace, &[only_a]);
+        assert_eq!(narrowed.candidates.len(), 1);
         assert!(
             narrowed.unused_config_ignores.is_empty(),
             "a narrowed run cannot judge root-wide entries"
@@ -983,7 +984,7 @@ mod tests {
     #[test]
     fn a_local_entry_shadows_a_global_one() {
         let fixture = Fixture::new(&[
-            ("anchr.toml", "[coverage]\nignore = [\"foo.ts\"]\n"),
+            ("anchr.toml", "[ignore]\ntokens = [\"foo.ts\"]\n"),
             ("docs/a.md", "@noref[foo.ts]\nSee foo.ts.\n"),
         ]);
         let report = fixture.coverage();

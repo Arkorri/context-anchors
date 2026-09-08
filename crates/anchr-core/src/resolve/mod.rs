@@ -256,15 +256,15 @@ impl<'a> Resolver<'a> {
         let on_disk = std::fs::symlink_metadata(root.dir.join(path.as_path())).ok()?;
         let is_dir = on_disk.is_dir();
         Some(
-            match root.config.scan.exclude_matching(path.as_path(), is_dir) {
+            match root.config.ignore.path_pattern(path.as_path(), is_dir) {
                 Some(pattern) => format!(
-                    "`{path}` exists on disk, but `[scan] exclude` pattern `{pattern}` keeps it out of the scan; excluded paths cannot be referenced"
+                    "`{path}` exists on disk, but `[ignore] paths` pattern `{pattern}` keeps it out of the scan; ignored paths cannot be referenced"
                 ),
                 None if is_dir => format!(
                     "`{path}` exists on disk, but the scan found no files beneath it (empty, or everything in it is ignored); such directories cannot be referenced"
                 ),
                 None => format!(
-                    "`{path}` exists on disk, but is ignored by `.gitignore` or `.anchrignore` rules, so the scan never sees it; ignored files cannot be referenced"
+                    "`{path}` exists on disk, but is ignored by `.gitignore`, so the scan never sees it; ignored files cannot be referenced"
                 ),
             },
         )
@@ -448,6 +448,8 @@ mod tests {
                 .external_roots
                 .insert(RootName::parse("absent").unwrap(), base.join("not-created"));
             for (name, files) in roots {
+                // A `.git` marker: `.gitignore` files carry weight only inside a repository.
+                fs::create_dir_all(base.join(name).join(".git")).unwrap();
                 for (path, contents) in *files {
                     let full = base.join(name).join(path);
                     fs::create_dir_all(full.parent().unwrap()).unwrap();
@@ -465,7 +467,7 @@ mod tests {
                 } else {
                     ScanMode::AnchorsOnly
                 };
-                let output = scan_root(root, &registry, mode).unwrap();
+                let output = scan_root(root, &registry, mode);
                 indexes.insert(
                     root.name.clone(),
                     Index::from_scan(root.name.clone(), output.files, output.tree),
@@ -685,14 +687,9 @@ mod tests {
     #[test]
     fn existence_follows_the_scan_not_the_disk() {
         let mut config = Config::default();
-        config.scan.exclude_patterns = vec!["vendor/**".to_owned()];
-        config.scan.exclude = globset::GlobSetBuilder::new()
-            .add(
-                globset::GlobBuilder::new("vendor/**")
-                    .literal_separator(true)
-                    .build()
-                    .unwrap(),
-            )
+        config.ignore.paths = ignore::gitignore::GitignoreBuilder::new("/repo")
+            .add_line(None, "vendor/**")
+            .unwrap()
             .build()
             .unwrap();
         let w = World::build(
@@ -730,7 +727,7 @@ mod tests {
 
         let excluded = w.explanation("vendor/lib.md").unwrap();
         assert!(
-            excluded.contains("`[scan] exclude` pattern `vendor/**`"),
+            excluded.contains("`[ignore] paths` pattern `vendor/**`"),
             "{excluded}"
         );
         let ignored = w.explanation("build/out.md").unwrap();

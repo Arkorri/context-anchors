@@ -367,7 +367,7 @@ mod tests {
     fn bare_dotfiles_are_not_candidates_but_dot_directories_are() {
         let repo = known(&[]);
         assert_eq!(shape(".env", &repo), None);
-        assert_eq!(shape(".anchrignore", &repo), None);
+        assert_eq!(shape(".env", &repo), None);
         assert_eq!(
             shape(".github/workflows/ci.yml", &repo),
             Some(PathShape::File)
