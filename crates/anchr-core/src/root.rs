@@ -96,6 +96,11 @@ impl FilePath {
     pub fn extension(&self) -> Option<&str> {
         self.0.extension()
     }
+
+    /// The directory holding the file, root-relative; `""` for a file at the root.
+    pub fn directory(&self) -> &Utf8Path {
+        self.0.parent().unwrap_or(Utf8Path::new(""))
+    }
 }
 
 fn with_forward_slashes(path: Utf8PathBuf) -> Utf8PathBuf {

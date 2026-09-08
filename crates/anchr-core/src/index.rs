@@ -422,7 +422,7 @@ mod tests {
     fn scan(source: &str) -> FileScan {
         let registry = LanguageRegistry::new().unwrap();
         FileAnalyzer::new(&registry, Duration::from_secs(1))
-            .scan(Container::Plaintext, source)
+            .scan(Container::Plaintext, source, &file("a.txt"))
             .unwrap()
     }
 
@@ -457,7 +457,7 @@ mod tests {
         );
         assert_eq!(index.alias_use_count(&file("a.txt"), &x), 2);
 
-        let target = crate::marker::parse_target("#x").unwrap().target;
+        let target = crate::marker::parse_target("#x", None).unwrap().target;
         let backrefs: Vec<RefSite<'_>> = index.backrefs(&target).collect();
         assert_eq!(backrefs.len(), 5);
         assert_eq!(backrefs.iter().filter(|r| r.via.is_some()).count(), 2);
@@ -535,7 +535,7 @@ mod tests {
             ("a.md", "@ref[#x] @ref[other:#x] @ref[#y] @ref[r:#x]"),
             ("b.md", "@ref[#x]"),
         ]);
-        let target = crate::marker::parse_target("#x").unwrap().target;
+        let target = crate::marker::parse_target("#x", None).unwrap().target;
         let mut paths: Vec<String> = index
             .backrefs(&target)
             .map(|r| r.site.path.to_string())
@@ -544,9 +544,11 @@ mod tests {
         assert_eq!(paths, vec!["a.md", "a.md", "b.md"]);
         assert!(index.backrefs(&target).all(|r| r.id_span.is_some()));
 
-        let prefixed = crate::marker::parse_target("r:#x").unwrap().target;
+        let prefixed = crate::marker::parse_target("r:#x", None).unwrap().target;
         assert_eq!(index.backrefs(&prefixed).count(), 3);
-        let other = crate::marker::parse_target("other:#x").unwrap().target;
+        let other = crate::marker::parse_target("other:#x", None)
+            .unwrap()
+            .target;
         assert_eq!(index.backrefs(&other).count(), 1);
     }
 

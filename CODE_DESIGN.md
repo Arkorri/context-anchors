@@ -17,7 +17,7 @@
 @ref[#cli/backrefs as Backrefs]
 @ref[#cli/rename as Rename]
 @ref[#cli/init as Init]
-@noref[foo.ts, report.json]
+@noref[foo.ts, report.json, docs/a.md]
 
 **Companion to:** @ref[DESIGN.md] (what the tool is) and @ref[DISTRIBUTION.md] (how it ships); this
 document covers how the code is shaped. Where it deviates from those two, §12 says so.
@@ -119,7 +119,7 @@ pub struct RootSet { current: RootName, roots: BTreeMap<RootName, RootStatus> }
 
 // marker/mod.rs
 pub struct AnchorId(String);            // segments `[A-Za-z0-9_][A-Za-z0-9_.-]*` joined by `/`
-pub struct RelPath(Utf8PathBuf);        // root-relative, normalized; allowlisted segment charset
+pub struct RelPath(Utf8PathBuf);        // root-relative, normalized, from a bare or a ./|../ spelling
 pub struct SymbolName(String);          // unqualified identifier; `Foo::bar` / `Class.method` rejected
 pub enum PathExpectation { Any, Directory }   // `Directory` when the target ended in `/`
 
@@ -164,9 +164,11 @@ body        := "#" anchor_id                      -> Anchor
 root        := [A-Za-z0-9_-]+
 anchor_id   := segment ("/" segment)*
 segment     := [A-Za-z0-9_] [A-Za-z0-9_.-]*
-rel_path    := path_seg ("/" path_seg)*
+rel_path    := path_seg ("/" path_seg)*                  root-relative
+             | "./" path_seg ("/" path_seg)*             relative to the writing file's directory
+             | ("../")+ path_seg ("/" path_seg)*         the same, climbing; never above the root
 path_seg    := one or more printable non-whitespace chars excluding  [ ] # : \  and control chars;
-               "." and ".." segments rejected; leading "/" rejected
+               "." and ".." rejected except as the leading run above; leading "/" rejected
 symbol_name := [A-Za-z_$] [A-Za-z0-9_$]*        (unqualified; "::" or "." ⇒ TargetError::QualifiedSymbol)
 ```
 
@@ -181,11 +183,19 @@ file-scoped ("a declaration named X exists in this file"), and `Foo::bar` would 
 guaranteed `SymbolMissing` with a useless suggestion. The rejection message states the
 file-scoped rule.
 
-`RelPath::parse` is an allowlist, like the other newtypes: it walks components, rejects
-`RootDir`/`Prefix`/`ParentDir`/`CurDir`, checks each segment's charset, and never touches the
-filesystem. @[parse_target] records `PathExpectation::Directory` *before* normalization, because
-`Utf8PathBuf` drops trailing separators. Resolution joins onto `Root.dir`; the normalized form is
-what guarantees the join cannot escape the root (§10).
+`RelPath::parse` is an allowlist, like the other newtypes: it walks segments, rejects `.` and
+`..`, checks each segment's charset, and never touches the filesystem. `RelPath::anchored` is
+the second constructor: the lexer passes the file being lexed, a `./` or `../` spelling is
+normalized lexically against that file's directory (@ref[crates/anchr-core/src/tree.rs#normalize]),
+climbing above the root is `PathError::EscapesRoot`, reported at the marker's span through the
+ordinary malformed-target path, and a `root:` prefix on a relative spelling is a parse error
+because "relative to this file" has no meaning in another root. Either way the stored path is
+root-relative, so the resolver, the index, `backrefs`, and the LSP never see the written form;
+`@ref[./x.md]` in `docs/a.md` and `@ref[docs/x.md]` in the README are one target. @[parse_target]
+records `PathExpectation::Directory` *before* normalization, because `Utf8PathBuf` drops
+trailing separators. Resolution joins onto `Root.dir`; the normalized form is what guarantees
+the join cannot escape the root (§10). A target typed on the command line (`backrefs`) has no
+file, so a relative spelling there is `TargetError::RelativeNeedsFile`.
 
 @[parse_target] also returns the byte span of the ID portion for `#id` / `root:#id` targets so
 @[Rename] (step 10) rewrites exactly the ID bytes and nothing else.
@@ -762,7 +772,10 @@ consult the scan tree (§3.5); a symlink entry is redirected lexically and never
 except that a link whose target leaves the root is classified with `fs::metadata` for existence
 only. Nothing is read without the canonical containment check. The walker runs with
 `follow_links(false)`. Functions take `&Utf8Path`, not owned paths. A `proptest` asserts
-`RelPath::parse(s).map(|p| root.join(p))` never escapes `root` for arbitrary `s`.
+`RelPath::parse(s).map(|p| root.join(p))` never escapes `root` for arbitrary `s`, and a second
+one asserts the same of `RelPath::anchored(dir, s)` over `(dir, s)` pairs: `./` and `../`
+spellings are normalized before construction, so a @[RelPath] is root-relative regardless of
+spelling.
 
 **Input bounds** (items 14, 16, 19) — @ref[crates/anchr-core/src/marker/id.rs#AnchorId],
 @ref[crates/anchr-core/src/root.rs#RootName],
@@ -1012,6 +1025,27 @@ Refinements the code made to the design above, recorded so the document stays th
     `EntryKind::Other` is gone because a socket is simply not in the tree. The one deliberate
     LSP caveat: an editor buffer for a gitignored file counts as present for that session; the
     CLI is the CI truth.
+
+19. **File-relative targets.** Of the monorepo's 971 unresolvable coverage rows outside its
+    generated tree, 229 resolved relative to the file that wrote them and 146 relative to an
+    ancestor directory: skills and package READMEs name their own files the way Markdown links
+    do. Rewriting those to root-relative paths would pin a skill directory to one location in
+    one repository, and skill directories are copied between repositories. So the grammar gained
+    `./` and `../` (§2), anchored in the lexer so nothing downstream changes. @[Coverage] uses the
+    same fact in its fallback (@ref[crates/anchr-core/src/coverage/mod.rs#relative_fallback]): a
+    bare token that misses at the root is proposed as `./token` when it resolves beside its file,
+    as the root-relative path when exactly one ancestor directory resolves it, and otherwise
+    stays unresolvable with a hint naming the one file of that basename if there is one. @[Check]
+    adds a per-site note when a missing bare path exists beside the file that wrote it; a note
+    rather than the suggestion because the suggestion is per cause and the same name may sit
+    beside one file and nowhere near another. A token that is only dots and slashes (`./`, `../`)
+    is never a candidate: it names the writing file's own directory, which always exists, and in
+    prose it is a mention of the syntax. Rejected: resolving bare paths with a root-then-file
+    fallback and no prefix, because a target string would stop having one meaning and `check`
+    results would change when an unrelated file appeared. In this repository only three markers
+    point at a sibling; the rest point up and across and stay root-relative. On the monorepo:
+    proposals 201 → 594 (233 sites proposed as `./`, 148 under exactly one ancestor), and 1,983
+    of the still-unresolvable sites now name the one file of that basename.
 
 ## 13. Research appendix
 

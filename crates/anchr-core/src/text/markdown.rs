@@ -122,7 +122,8 @@ mod tests {
 
     /// The marker bodies the lexer sees after region exclusion, in document order.
     fn checked_bodies(source: &str) -> Vec<&str> {
-        let lexed = lex(source, &text_regions(source).unwrap()).unwrap();
+        let file = crate::root::FilePath::new("docs/a.md".into()).unwrap();
+        let lexed = lex(source, &text_regions(source).unwrap(), &file).unwrap();
         assert!(lexed.malformed.is_empty(), "{:?}", lexed.malformed);
         lexed
             .markers

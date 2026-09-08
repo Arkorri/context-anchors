@@ -1,17 +1,22 @@
+use super::path::is_file_relative;
 use super::{
     Alias, AliasError, AnchorId, DeclaredAlias, IdError, PathError, PathExpectation, RelPath,
     SymbolError, SymbolName,
 };
-use crate::root::{RootName, RootNameError, is_root_name_char};
+use crate::root::{FilePath, RootName, RootNameError, is_root_name_char};
 use crate::span::ByteSpan;
 
 /// What an `@ref[...]` body points at.
 ///
 /// ```text
-/// ref    := target [ws "as" ws alias]
-/// target := [root ":"] body
-/// body   := "#" anchor_id | rel_path "#" symbol_name | rel_path ["/"]
+/// ref      := target [ws "as" ws alias]
+/// target   := [root ":"] body
+/// body     := "#" anchor_id | rel_path "#" symbol_name | rel_path ["/"]
+/// rel_path := bare_path | "./" bare_path | ("../")+ bare_path
 /// ```
+///
+/// A bare path is root-relative; `./` and `../` are relative to the file the marker is written
+/// in and are anchored at parse time, so every `RelPath` here is root-relative.
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
 pub enum RefTarget {
     Path {
@@ -36,6 +41,30 @@ impl RefTarget {
             RefTarget::Path { root, .. }
             | RefTarget::Symbol { root, .. }
             | RefTarget::Anchor { root, .. } => root.as_ref(),
+        }
+    }
+
+    pub fn path(&self) -> Option<&RelPath> {
+        match self {
+            RefTarget::Path { path, .. } | RefTarget::Symbol { path, .. } => Some(path),
+            RefTarget::Anchor { .. } => None,
+        }
+    }
+
+    /// The same target aimed at another path; an anchor target is returned unchanged.
+    pub fn with_path(&self, path: RelPath) -> RefTarget {
+        match self {
+            RefTarget::Path { root, expects, .. } => RefTarget::Path {
+                root: root.clone(),
+                path,
+                expects: *expects,
+            },
+            RefTarget::Symbol { root, name, .. } => RefTarget::Symbol {
+                root: root.clone(),
+                path,
+                name: name.clone(),
+            },
+            RefTarget::Anchor { .. } => self.clone(),
         }
     }
 
@@ -81,6 +110,14 @@ pub enum TargetError {
     EmptySymbol,
     #[error("a target has no spaces; to declare an alias write `target as Alias`")]
     BadAliasClause,
+    #[error(
+        "`{root}:` cannot prefix a `./` or `../` path; a relative path is resolved from the file it is written in, which is always in the current root"
+    )]
+    RootPrefixOnRelative { root: String },
+    #[error(
+        "a `./` or `../` path is relative to the file it is written in; there is no file here, so write the path root-relative"
+    )]
+    RelativeNeedsFile,
     #[error(transparent)]
     Alias(AliasError),
     #[error(transparent)]
@@ -93,12 +130,17 @@ pub enum TargetError {
     Symbol(SymbolError),
 }
 
-pub fn parse_target(body: &str) -> Result<ParsedTarget, TargetError> {
+/// `written_in` is the file the marker sits in, which anchors `./` and `../` paths. `None` is
+/// for targets typed on a command line, where a relative path has nothing to be relative to.
+pub fn parse_target(
+    body: &str,
+    written_in: Option<&FilePath>,
+) -> Result<ParsedTarget, TargetError> {
     if body.is_empty() {
         return Err(TargetError::Empty);
     }
     if !body.contains(char::is_whitespace) {
-        let (target, id_span) = parse_bare_target(body, 0)?;
+        let (target, id_span) = parse_bare_target(body, 0, written_in)?;
         return Ok(ParsedTarget {
             target,
             id_span,
@@ -115,7 +157,7 @@ pub fn parse_target(body: &str) -> Result<ParsedTarget, TargetError> {
             ],
             false,
         ) => {
-            let (target, id_span) = parse_bare_target(target_text, *target_start)?;
+            let (target, id_span) = parse_bare_target(target_text, *target_start, written_in)?;
             let alias = Alias::parse(alias_text).map_err(TargetError::Alias)?;
             Ok(ParsedTarget {
                 target,
@@ -154,6 +196,7 @@ fn whitespace_separated_tokens(body: &str) -> Vec<(usize, &str)> {
 fn parse_bare_target(
     text: &str,
     offset: usize,
+    written_in: Option<&FilePath>,
 ) -> Result<(RefTarget, Option<ByteSpan>), TargetError> {
     let (root, rest, rest_offset) = split_root_prefix(text)?;
 
@@ -166,11 +209,19 @@ fn parse_bare_target(
         ));
     }
 
+    if is_file_relative(rest)
+        && let Some(root) = &root
+    {
+        return Err(TargetError::RootPrefixOnRelative {
+            root: root.to_string(),
+        });
+    }
+
     if let Some((path_text, name_text)) = rest.split_once('#') {
         if name_text.is_empty() {
             return Err(TargetError::EmptySymbol);
         }
-        let path = RelPath::parse(path_text).map_err(TargetError::Path)?;
+        let path = parse_path(path_text, written_in)?;
         let name = SymbolName::parse(name_text).map_err(TargetError::Symbol)?;
         return Ok((RefTarget::Symbol { root, path, name }, None));
     }
@@ -179,7 +230,7 @@ fn parse_bare_target(
         Some(stripped) => (stripped, PathExpectation::Directory),
         None => (rest, PathExpectation::Any),
     };
-    let path = RelPath::parse(path_text).map_err(TargetError::Path)?;
+    let path = parse_path(path_text, written_in)?;
     Ok((
         RefTarget::Path {
             root,
@@ -188,6 +239,14 @@ fn parse_bare_target(
         },
         None,
     ))
+}
+
+fn parse_path(text: &str, written_in: Option<&FilePath>) -> Result<RelPath, TargetError> {
+    match written_in {
+        Some(file) => RelPath::anchored(file.directory(), text).map_err(TargetError::Path),
+        None if is_file_relative(text) => Err(TargetError::RelativeNeedsFile),
+        None => RelPath::parse(text).map_err(TargetError::Path),
+    }
 }
 
 /// A leading `name:` is a root prefix only when `name` is root-shaped; otherwise the `:` is
@@ -211,7 +270,22 @@ fn split_root_prefix(body: &str) -> Result<(Option<RootName>, &str, usize), Targ
 #[cfg(test)]
 #[allow(clippy::unwrap_used)]
 mod tests {
+    use camino::Utf8PathBuf;
+
     use super::*;
+
+    /// Parsed with no file, as the command line does.
+    fn parse_target_here(body: &str) -> Result<ParsedTarget, TargetError> {
+        parse_target(body, None)
+    }
+
+    fn file(path: &str) -> FilePath {
+        FilePath::new(Utf8PathBuf::from(path)).unwrap()
+    }
+
+    fn parse_in(body: &str, written_in: &str) -> Result<ParsedTarget, TargetError> {
+        parse_target(body, Some(&file(written_in)))
+    }
 
     fn root(name: &str) -> Option<RootName> {
         Some(RootName::parse(name).unwrap())
@@ -222,9 +296,113 @@ mod tests {
     }
 
     #[test]
+    fn dot_slash_and_dot_dot_anchor_to_the_written_file() {
+        let anchored = |body: &str, written_in: &str| parse_in(body, written_in).unwrap().target;
+        assert_eq!(
+            anchored("./x.md", "docs/a.md"),
+            RefTarget::Path {
+                root: None,
+                path: path("docs/x.md"),
+                expects: PathExpectation::Any
+            }
+        );
+        assert_eq!(
+            anchored("../x.md", "docs/design/a.md").path(),
+            Some(&path("docs/x.md"))
+        );
+        assert_eq!(
+            anchored("../../x.md", "docs/design/a.md").path(),
+            Some(&path("x.md"))
+        );
+        assert_eq!(anchored("./x.md", "a.md").path(), Some(&path("x.md")));
+        assert_eq!(
+            anchored("./sub/x.ts#Name", "docs/a.md"),
+            RefTarget::Symbol {
+                root: None,
+                path: path("docs/sub/x.ts"),
+                name: SymbolName::parse("Name").unwrap()
+            }
+        );
+        assert_eq!(
+            anchored("./sub/", "docs/a.md"),
+            RefTarget::Path {
+                root: None,
+                path: path("docs/sub"),
+                expects: PathExpectation::Directory
+            }
+        );
+        assert_eq!(
+            anchored("../", "docs/design/a.md"),
+            RefTarget::Path {
+                root: None,
+                path: path("docs"),
+                expects: PathExpectation::Directory
+            }
+        );
+        assert_eq!(
+            anchored("x.md", "docs/a.md").path(),
+            Some(&path("x.md")),
+            "a bare path is root-relative wherever it is written"
+        );
+        let declared = parse_in("./x.md as X", "docs/a.md").unwrap();
+        assert_eq!(declared.target.path(), Some(&path("docs/x.md")));
+        assert_eq!(declared.alias, alias("X", 10));
+    }
+
+    #[test]
+    fn relative_forms_reject_escapes_prefixes_and_stray_dots() {
+        assert_eq!(
+            parse_in("../../x.md", "docs/a.md"),
+            Err(TargetError::Path(PathError::EscapesRoot))
+        );
+        assert_eq!(
+            parse_in("./", "a.md"),
+            Err(TargetError::Path(PathError::NamesRoot))
+        );
+        assert_eq!(
+            parse_in("../", "docs/a.md"),
+            Err(TargetError::Path(PathError::NamesRoot))
+        );
+        assert_eq!(
+            parse_in("claude:./x.md", "docs/a.md"),
+            Err(TargetError::RootPrefixOnRelative {
+                root: "claude".to_owned()
+            })
+        );
+        assert_eq!(
+            parse_in("./a/./b", "docs/a.md"),
+            Err(TargetError::Path(PathError::CurrentDirectory))
+        );
+        assert_eq!(
+            parse_in("./../x", "docs/a.md"),
+            Err(TargetError::Path(PathError::ParentDirectory))
+        );
+        assert_eq!(
+            parse_in("a/../b", "docs/a.md"),
+            Err(TargetError::Path(PathError::ParentDirectory))
+        );
+        assert_eq!(
+            parse_in(".hidden", "docs/a.md").unwrap().target.path(),
+            Some(&path(".hidden"))
+        );
+        assert_eq!(
+            parse_in("..rc", "docs/a.md").unwrap().target.path(),
+            Some(&path("..rc"))
+        );
+        assert_eq!(
+            parse_target_here("./x.md"),
+            Err(TargetError::RelativeNeedsFile)
+        );
+        assert_eq!(
+            parse_target_here("../x.md#Name"),
+            Err(TargetError::RelativeNeedsFile)
+        );
+    }
+
+    #[test]
     fn parses_each_target_kind() {
         assert_eq!(
-            parse_target("src/dir").unwrap().target,
+            parse_target_here("src/dir").unwrap().target,
             RefTarget::Path {
                 root: None,
                 path: path("src/dir"),
@@ -232,7 +410,7 @@ mod tests {
             }
         );
         assert_eq!(
-            parse_target("src/dir/").unwrap().target,
+            parse_target_here("src/dir/").unwrap().target,
             RefTarget::Path {
                 root: None,
                 path: path("src/dir"),
@@ -240,7 +418,9 @@ mod tests {
             }
         );
         assert_eq!(
-            parse_target("src/file.ts#FunctionName").unwrap().target,
+            parse_target_here("src/file.ts#FunctionName")
+                .unwrap()
+                .target,
             RefTarget::Symbol {
                 root: None,
                 path: path("src/file.ts"),
@@ -248,7 +428,7 @@ mod tests {
             }
         );
         assert_eq!(
-            parse_target("#auth/token-refresh").unwrap(),
+            parse_target_here("#auth/token-refresh").unwrap(),
             ParsedTarget {
                 target: RefTarget::Anchor {
                     root: None,
@@ -263,7 +443,7 @@ mod tests {
     #[test]
     fn root_prefix_applies_to_every_kind_and_offsets_the_id_span() {
         assert_eq!(
-            parse_target("claude:#auth/flow").unwrap(),
+            parse_target_here("claude:#auth/flow").unwrap(),
             ParsedTarget {
                 target: RefTarget::Anchor {
                     root: root("claude"),
@@ -274,11 +454,14 @@ mod tests {
             }
         );
         assert_eq!(
-            parse_target("claude:skills/x.md").unwrap().target.root(),
+            parse_target_here("claude:skills/x.md")
+                .unwrap()
+                .target
+                .root(),
             root("claude").as_ref()
         );
         assert_eq!(
-            parse_target("claude:a.rs#f").unwrap().target.root(),
+            parse_target_here("claude:a.rs#f").unwrap().target.root(),
             root("claude").as_ref()
         );
     }
@@ -286,45 +469,48 @@ mod tests {
     #[test]
     fn colon_that_is_not_a_root_prefix_is_a_reserved_path_char() {
         assert_eq!(
-            parse_target("src/foo:bar.md"),
+            parse_target_here("src/foo:bar.md"),
             Err(TargetError::Path(PathError::ReservedChar { ch: ':' }))
         );
         assert_eq!(
-            parse_target("#id:x"),
+            parse_target_here("#id:x"),
             Err(TargetError::Id(IdError::InvalidChar { ch: ':' }))
         );
     }
 
     #[test]
     fn rejects_each_malformed_shape() {
-        assert_eq!(parse_target(""), Err(TargetError::Empty));
+        assert_eq!(parse_target_here(""), Err(TargetError::Empty));
         assert_eq!(
-            parse_target("claude:"),
+            parse_target_here("claude:"),
             Err(TargetError::EmptyAfterRoot {
                 root: "claude".to_owned()
             })
         );
-        assert_eq!(parse_target("a.rs#"), Err(TargetError::EmptySymbol));
-        assert_eq!(parse_target("#"), Err(TargetError::Id(IdError::Empty)));
+        assert_eq!(parse_target_here("a.rs#"), Err(TargetError::EmptySymbol));
+        assert_eq!(parse_target_here("#"), Err(TargetError::Id(IdError::Empty)));
         assert_eq!(
-            parse_target("a.rs#Foo::bar"),
+            parse_target_here("a.rs#Foo::bar"),
             Err(TargetError::Symbol(SymbolError::Qualified {
                 separator: "::"
             }))
         );
         assert_eq!(
-            parse_target("dir/#Foo"),
+            parse_target_here("dir/#Foo"),
             Err(TargetError::Path(PathError::EmptySegment))
         );
         assert_eq!(
-            parse_target("../x.md"),
-            Err(TargetError::Path(PathError::ParentDirectory))
+            parse_target_here("../x.md"),
+            Err(TargetError::RelativeNeedsFile)
         );
         assert_eq!(
-            parse_target("/x.md"),
+            parse_target_here("/x.md"),
             Err(TargetError::Path(PathError::Absolute))
         );
-        assert_eq!(parse_target("a b.md"), Err(TargetError::BadAliasClause));
+        assert_eq!(
+            parse_target_here("a b.md"),
+            Err(TargetError::BadAliasClause)
+        );
     }
 
     fn alias(name: &str, start: usize) -> Option<DeclaredAlias> {
@@ -337,7 +523,7 @@ mod tests {
     #[test]
     fn an_alias_clause_binds_a_name_and_keeps_spans_on_the_target_token() {
         assert_eq!(
-            parse_target("#auth/flow as Flow").unwrap(),
+            parse_target_here("#auth/flow as Flow").unwrap(),
             ParsedTarget {
                 target: RefTarget::Anchor {
                     root: None,
@@ -348,7 +534,7 @@ mod tests {
             }
         );
         assert_eq!(
-            parse_target("claude:#auth/flow as Flow").unwrap(),
+            parse_target_here("claude:#auth/flow as Flow").unwrap(),
             ParsedTarget {
                 target: RefTarget::Anchor {
                     root: root("claude"),
@@ -358,10 +544,10 @@ mod tests {
                 alias: alias("Flow", 21),
             }
         );
-        let symbol = parse_target("src/x.rs#run as Run").unwrap();
+        let symbol = parse_target_here("src/x.rs#run as Run").unwrap();
         assert!(matches!(symbol.target, RefTarget::Symbol { .. }));
         assert_eq!(symbol.alias, alias("Run", 16));
-        let directory = parse_target("docs/ as Docs").unwrap();
+        let directory = parse_target_here("docs/ as Docs").unwrap();
         assert!(matches!(
             directory.target,
             RefTarget::Path {
@@ -369,13 +555,19 @@ mod tests {
                 ..
             }
         ));
-        assert_eq!(parse_target("a.md\tas\tA").unwrap().alias, alias("A", 8));
-        assert_eq!(parse_target("a.md  as   A").unwrap().alias, alias("A", 11));
+        assert_eq!(
+            parse_target_here("a.md\tas\tA").unwrap().alias,
+            alias("A", 8)
+        );
+        assert_eq!(
+            parse_target_here("a.md  as   A").unwrap().alias,
+            alias("A", 11)
+        );
     }
 
     #[test]
     fn as_inside_a_path_is_not_a_clause() {
-        let parsed = parse_target("src/as/x.rs").unwrap();
+        let parsed = parse_target_here("src/as/x.rs").unwrap();
         assert_eq!(parsed.alias, None);
         assert!(matches!(parsed.target, RefTarget::Path { .. }));
     }
@@ -392,21 +584,21 @@ mod tests {
             " a.md as A",
         ] {
             assert_eq!(
-                parse_target(body),
+                parse_target_here(body),
                 Err(TargetError::BadAliasClause),
                 "{body:?}"
             );
         }
         assert_eq!(
-            parse_target("a.md as 9a"),
+            parse_target_here("a.md as 9a"),
             Err(TargetError::Alias(AliasError::InvalidStart { ch: '9' }))
         );
         assert_eq!(
-            parse_target("a b.md as A"),
+            parse_target_here("a b.md as A"),
             Err(TargetError::BadAliasClause)
         );
         assert_eq!(
-            parse_target("#bad id as A"),
+            parse_target_here("#bad id as A"),
             Err(TargetError::BadAliasClause)
         );
     }

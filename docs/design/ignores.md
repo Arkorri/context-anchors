@@ -1,6 +1,6 @@
 # Ignore lists — saying "this is not a reference"
 
-**Status:** implemented. Companion to @ref[docs/design/aliases.md] (the construct that made the
+**Status:** implemented. Companion to @ref[./aliases.md] (the construct that made the
 remaining coverage candidates visible) and @ref[CODE_DESIGN.md] (the pipeline this extends).
 <!-- refs -->
 @ref[#cli/check as Check]

@@ -14,6 +14,7 @@ pub use language::{LanguageRegistry, LanguageSpec, RegistryError};
 pub use source::{MAX_DECLARATIONS_PER_FILE, SymbolTable};
 
 use crate::marker::{LexError, Lexed, MalformedMarker, Marker, lex};
+use crate::root::FilePath;
 use crate::span::{ByteSpan, LineIndex, PositionOverflow};
 
 /// What kind of text a byte range holds. Only these regions are lexed for markers.
@@ -119,7 +120,8 @@ impl<'r> Container<'r> {
     }
 }
 
-/// Everything the lexer found in one file. File identity is attached by the scan stage.
+/// Everything the lexer found in one file. The path is passed in so `./` targets can be
+/// anchored at lex time; `ScannedFile` still owns file identity.
 #[derive(Debug, Clone)]
 pub struct FileScan {
     pub markers: Vec<Marker>,
@@ -201,9 +203,11 @@ impl<'r> FileAnalyzer<'r> {
         &mut self,
         container: Container<'r>,
         source: &str,
+        path: &FilePath,
     ) -> Result<FileScan, AnalyzeError> {
         let regions = self.text_regions(container, source)?;
-        let Lexed { markers, malformed } = lex(source, &regions).map_err(AnalyzeError::Lex)?;
+        let Lexed { markers, malformed } =
+            lex(source, &regions, path).map_err(AnalyzeError::Lex)?;
         let line_index = LineIndex::new(source).map_err(AnalyzeError::Position)?;
         Ok(FileScan {
             markers,

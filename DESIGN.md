@@ -9,6 +9,7 @@
 @ref[#cli/coverage as Coverage]
 @ref[#cli/backrefs as Backrefs]
 @ref[#cli/rename as Rename]
+@noref[docs/x.md, x.md]
 
 ---
 
@@ -138,6 +139,15 @@ ambiguity gets worse once hierarchical IDs contain `/`. With it, the grammar nee
 and IDs can never collide with paths. The same reasoning keeps brackets on alias uses: `@[X]`
 has the shape of every other marker, so a bare `@word` in prose or a comment (`@param`, a
 handle) is never one.
+
+**Bare paths are root-relative; `./` and `../` are file-relative.** A bare `docs/x.md` means the
+same thing wherever it is written, which is what a grep-able convention wants. The relative forms
+exist for directories that move as a unit: a skill or a package directory is copied between
+repositories, and the references inside it to its own files survive the copy only if they are
+written relative to the file, the way Markdown links already are. `./` is mandatory for a
+same-directory file so `x.md` never changes meaning with its location; `../` may climb but never
+above the root, which is an error at the marker; and the anchored root-relative path is the only
+form the rest of the tool ever sees.
 
 ### Aliases
 

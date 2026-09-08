@@ -134,7 +134,7 @@ impl Workspace {
             return Ok(false);
         };
         let mut analyzer = FileAnalyzer::new(&self.registry, root.config.scan.parse_budget);
-        let scan = analyzer.scan(container, text)?;
+        let scan = analyzer.scan(container, text, &path)?;
         index.update_file(path, scan);
         Ok(true)
     }
@@ -200,9 +200,10 @@ pub fn check(workspace: &Workspace, options: &CheckOptions) -> Result<Report, Ch
             Resolution::Unresolved(unresolved) => {
                 let suggestion = resolver.suggest(&unresolved);
                 let explanation = resolver.explain(&unresolved);
+                let relative = resolver.relative_note(&unresolved, &path);
                 let kind = DiagnosticKind::Unresolved(unresolved);
                 builder.suggestion(&kind, suggestion);
-                if let Some(note) = explanation {
+                for note in [explanation, relative].into_iter().flatten() {
                     builder.note(&kind, note);
                 }
                 kind

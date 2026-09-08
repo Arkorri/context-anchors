@@ -302,3 +302,40 @@ fn hidden_and_container_less_targets_resolve_when_the_scan_walked_them() {
         .code(0)
         .stdout(predicate::str::contains("3 resolved, 0 errors"));
 }
+
+#[test]
+fn relative_targets_that_leave_the_root_or_carry_a_root_prefix_are_malformed() {
+    let fixture = Fixture::new(&[
+        (
+            "docs/a.md",
+            "@ref[../../x.md] @ref[claude:./x.md] @ref[./b.md]\n",
+        ),
+        ("docs/b.md", ""),
+    ]);
+    let output = fixture
+        .anchr()
+        .args(["check", "--color", "never"])
+        .output()
+        .unwrap();
+    assert_eq!(output.status.code(), Some(1));
+    let stdout = scrub(&String::from_utf8(output.stdout).unwrap(), &fixture.root());
+    insta::assert_snapshot!("human_relative_malformed", stdout);
+}
+
+#[test]
+fn a_missing_bare_path_beside_its_file_gets_a_note_naming_the_relative_form() {
+    let fixture = Fixture::new(&[
+        ("docs/a.md", "@ref[guide.md]\n"),
+        ("src/b.md", "@ref[guide.md]\n"),
+        ("docs/guide.md", ""),
+    ]);
+    let (code, json) = fixture.check_json(&[]);
+    assert_eq!(code, 1);
+    let diagnostics = json["diagnostics"].as_array().unwrap();
+    assert_eq!(diagnostics.len(), 1);
+    assert_eq!(diagnostics[0]["locations"].as_array().unwrap().len(), 2);
+    assert_eq!(
+        diagnostics[0]["notes"],
+        serde_json::json!(["in `docs/a.md`, `./guide.md` would resolve to `docs/guide.md`"])
+    );
+}
