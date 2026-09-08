@@ -10,11 +10,11 @@ exclude = ["target/**", "**/snapshots/**"]
 [coverage]
 # Archived research: kept valid, never asked for more annotation.
 exclude = ["docs/research/**"]
-# Files that live in a user's repository, and the product's own name, are never references here.
+# Files that live in a user's repository are never references here.
 ignore = [
   "CLAUDE.md", "AGENTS.md", "GEMINI.md", "package.json", "build.rs",
   "CHANGELOG.md", ".claude-plugin/marketplace.json", "dist-manifest.json", ".claude/settings.json",
-  "anchr", "anchr.toml",
+  "anchr.toml",
   # A registry, a file inside the tree-sitter grammars, and example paths under a `src/` this
   # repository does not have.
   "crates.io", "tags.scm", "src/",

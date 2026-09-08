@@ -77,6 +77,8 @@ say so once and the report stops asking:
 - Reference-shaped means a path ending in `/`, or `name.ext` where the extension is one GitHub
   Linguist lists or a file in this repository carries. A glob such as `src/*` is proposed as
   `src/`; prose like `line/col` or `e.g.` is never a candidate.
+- A backticked code symbol on its own is never a candidate: a name has no single referent.
+  Declare `@ref[src/file.ts#Name as Name]` once and every `Name` in the file is proposed.
 - `@noref` is file-scoped, like an alias. For strings that are never references anywhere, use
   `ignore` under `[coverage]` in `anchr.toml`; `exclude` there keeps whole files checked but never
   proposes annotations in them.

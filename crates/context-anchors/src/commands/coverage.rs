@@ -27,15 +27,6 @@ pub fn run(args: &CoverageArgs) -> anyhow::Result<Outcome> {
                 let verdict = match &candidate.kind {
                     CandidateKind::Proposal { replacement } => format!("could be {replacement}"),
                     CandidateKind::Unresolvable { reason } => format!("does not resolve: {reason}"),
-                    CandidateKind::Ambiguous { declared_in } => format!(
-                        "declared in {} files: {}",
-                        declared_in.len(),
-                        declared_in
-                            .iter()
-                            .map(ToString::to_string)
-                            .collect::<Vec<_>>()
-                            .join(", ")
-                    ),
                     CandidateKind::UnusedAlias { .. } => "alias declared but never used".to_owned(),
                     CandidateKind::UnusedIgnore { .. } => "ignored but never matched".to_owned(),
                 };
@@ -69,12 +60,11 @@ pub fn run(args: &CoverageArgs) -> anyhow::Result<Outcome> {
             };
             writeln!(
                 stdout,
-                "{} of {} reference-shaped strings are annotated; {} could be, {} do not resolve, {} are ambiguous{unused_aliases}{ignored}{unused_ignores}",
+                "{} of {} reference-shaped strings are annotated; {} could be, {} do not resolve{unused_aliases}{ignored}{unused_ignores}",
                 summary.annotated_refs,
                 summary.total(),
                 summary.proposals,
                 summary.unresolvable,
-                summary.ambiguous,
             )?;
         }
     }

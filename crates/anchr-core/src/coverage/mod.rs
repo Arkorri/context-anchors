@@ -2,11 +2,16 @@
 //! nothing on what is not; `coverage` reports reference-shaped strings that carry no marker,
 //! and `annotate` proposes markers only where the target already resolves. It never errors
 //! and never writes on its own.
+//!
+//! Only paths and declared aliases are candidates. A resolving path has one referent, so a
+//! proposal for it is the reference the author meant; a bare code symbol does not, so it is
+//! never a candidate. Symbols enter coverage through an alias declaration, after which every
+//! use in that file is proposed.
 
 mod linguist;
 mod token;
 
-use std::collections::{BTreeMap, BTreeSet, HashMap};
+use std::collections::{BTreeMap, BTreeSet};
 
 use crate::check::Workspace;
 use crate::edit::TextEdit;
@@ -26,8 +31,6 @@ pub enum CandidateKind {
     Proposal { replacement: String },
     /// Reference-shaped but does not resolve: quite possibly a stale reference in prose.
     Unresolvable { reason: String },
-    /// An identifier declared in more than one scanned file; a human must pick.
-    Ambiguous { declared_in: Vec<FilePath> },
     /// Declared with `as` in this file and never written as `@[alias]`. Advisory only, never
     /// an edit: the fix is to use it or drop the clause.
     UnusedAlias { alias: Alias },
@@ -51,7 +54,6 @@ pub struct CoverageSummary {
     pub annotated_refs: usize,
     pub proposals: usize,
     pub unresolvable: usize,
-    pub ambiguous: usize,
     /// Not reference-shaped strings, so not part of `total`.
     pub unused_aliases: usize,
     /// Tokens an ignore list suppressed. The author has said they are not references, so they
@@ -64,7 +66,7 @@ pub struct CoverageSummary {
 impl CoverageSummary {
     /// Reference-shaped strings, annotated or not.
     pub fn total(&self) -> usize {
-        self.annotated_refs + self.proposals + self.unresolvable + self.ambiguous
+        self.annotated_refs + self.proposals + self.unresolvable
     }
 }
 
@@ -101,13 +103,11 @@ impl CoverageReport {
 }
 
 /// Scans the current root. `only_files` and `[coverage] exclude` narrow which files are scanned
-/// for candidates and counted; the symbol index used to place identifiers always covers the
-/// whole root. A file that cannot be read or analyzed is skipped: coverage informs, it never
-/// fails.
+/// for candidates and counted. A file that cannot be read or analyzed is skipped: coverage
+/// informs, it never fails.
 pub fn coverage(workspace: &Workspace, only_files: &[FilePath]) -> CoverageReport {
     let (root, index) = workspace.current();
     let mut analyzer = FileAnalyzer::new(&workspace.registry, root.config.scan.parse_budget);
-    let symbols = symbol_index(workspace, &mut analyzer);
     let mut resolver = Resolver::new(&workspace.roots, &workspace.registry);
     let no_extensions = BTreeSet::new();
     let known = KnownExtensions::new(
@@ -175,7 +175,6 @@ pub fn coverage(workspace: &Workspace, only_files: &[FilePath]) -> CoverageRepor
                     Shape::Path(shape) => {
                         classify_path(&mut resolver, &root.name, &token.text, *shape)
                     }
-                    Shape::Identifier => classify_identifier(&symbols, &token.text),
                     Shape::Alias(alias) => Some(CandidateKind::Proposal {
                         replacement: format!("@[{alias}]"),
                     }),
@@ -275,7 +274,6 @@ pub fn coverage(workspace: &Workspace, only_files: &[FilePath]) -> CoverageRepor
         match candidate.kind {
             CandidateKind::Proposal { .. } => summary.proposals += 1,
             CandidateKind::Unresolvable { .. } => summary.unresolvable += 1,
-            CandidateKind::Ambiguous { .. } => summary.ambiguous += 1,
             CandidateKind::UnusedAlias { .. } => summary.unused_aliases += 1,
             CandidateKind::UnusedIgnore { .. } => summary.unused_ignores += 1,
         }
@@ -310,53 +308,6 @@ fn classify_path(
             reason: crate::diagnostic::DiagnosticKind::Unverified(unverified).to_string(),
         },
     })
-}
-
-fn classify_identifier(
-    symbols: &HashMap<String, Vec<FilePath>>,
-    name: &str,
-) -> Option<CandidateKind> {
-    let declared_in = symbols.get(name)?;
-    match declared_in.as_slice() {
-        [] => None,
-        [only] => Some(CandidateKind::Proposal {
-            replacement: format!("@ref[{only}#{name}]"),
-        }),
-        many => Some(CandidateKind::Ambiguous {
-            declared_in: many.to_vec(),
-        }),
-    }
-}
-
-/// Declaration name → files declaring it, over every source file in the current root.
-fn symbol_index(
-    workspace: &Workspace,
-    analyzer: &mut FileAnalyzer<'_>,
-) -> HashMap<String, Vec<FilePath>> {
-    let (root, index) = workspace.current();
-    let mut symbols: HashMap<String, Vec<FilePath>> = HashMap::new();
-    let mut paths: Vec<&FilePath> = index.file_paths().collect();
-    paths.sort();
-    for path in paths {
-        let Some(Container::Source(spec)) =
-            Container::for_path(path.as_path(), &root.config.containers, &workspace.registry)
-        else {
-            continue;
-        };
-        let Ok(source) = std::fs::read_to_string(root.dir.join(path.as_path())) else {
-            continue;
-        };
-        let Ok(table) = analyzer.symbols(spec, &source) else {
-            continue;
-        };
-        for name in table.names() {
-            symbols
-                .entry(name.to_owned())
-                .or_default()
-                .push(path.clone());
-        }
-    }
-    symbols
 }
 
 #[cfg(test)]
@@ -403,9 +354,6 @@ mod tests {
                 let kind = match &c.kind {
                     CandidateKind::Proposal { replacement } => format!("propose {replacement}"),
                     CandidateKind::Unresolvable { .. } => "unresolvable".to_owned(),
-                    CandidateKind::Ambiguous { declared_in } => {
-                        format!("ambiguous x{}", declared_in.len())
-                    }
                     CandidateKind::UnusedAlias { .. } => "unused alias".to_owned(),
                     CandidateKind::UnusedIgnore { .. } => "unused ignore".to_owned(),
                 };
@@ -524,11 +472,11 @@ mod tests {
     }
 
     #[test]
-    fn identifiers_in_code_spans_resolve_through_the_symbol_index() {
+    fn backticked_identifiers_are_never_candidates() {
         let fixture = Fixture::new(&[
             (
                 "docs/a.md",
-                "Call `validate_token`, then `shared_name`; `not_declared` and `x` are ignored.\n",
+                "Call `validate_token`, then `shared_name`; see `src/auth.rs#validate_token`.\n",
             ),
             (
                 "src/auth.rs",
@@ -536,7 +484,7 @@ mod tests {
             ),
             (
                 "src/other.rs",
-                "pub fn shared_name() {}\n// see `validate_token` and src/auth.rs\n",
+                "pub fn shared_name() {}\n// see `validate_token`, `shared_name`, and src/auth.rs\n",
             ),
         ]);
         let report = fixture.coverage();
@@ -545,19 +493,13 @@ mod tests {
             vec![
                 row(
                     "docs/a.md",
-                    "`validate_token`",
-                    "propose @ref[src/auth.rs#validate_token]"
-                ),
-                row("docs/a.md", "`shared_name`", "ambiguous x2"),
-                row(
-                    "src/other.rs",
-                    "`validate_token`",
+                    "`src/auth.rs#validate_token`",
                     "propose @ref[src/auth.rs#validate_token]"
                 ),
                 row("src/other.rs", "src/auth.rs", "propose @ref[src/auth.rs]"),
             ]
         );
-        assert_eq!(report.summary.ambiguous, 1);
+        assert_eq!(report.summary.total(), 2);
     }
 
     #[test]
@@ -604,10 +546,7 @@ mod tests {
         assert_eq!(report.summary.unused_aliases, 1);
         assert_eq!(
             report.summary.total(),
-            report.summary.annotated_refs
-                + report.summary.proposals
-                + report.summary.unresolvable
-                + report.summary.ambiguous
+            report.summary.annotated_refs + report.summary.proposals + report.summary.unresolvable
         );
         let edits = report.proposals();
         let a = &edits[&FilePath::new(Utf8PathBuf::from("docs/a.md")).unwrap()];

@@ -168,8 +168,7 @@ The full design, with the reasons behind each rule, is @ref[docs/design/aliases.
 
 @[Coverage] reports reference-shaped strings that carry no marker. Some of them are correctly
 shaped and still not references: an example path in a guide, a file that exists in the reader's
-repository rather than this one, the product's own name. The author says so once, and the
-report stops asking.
+repository rather than this one. The author says so once, and the report stops asking.
 
 ```markdown
 <!-- refs -->
@@ -185,6 +184,10 @@ ignore  = ["CLAUDE.md", "AGENTS.md"] # never a reference anywhere in this root
 - Reference-shaped means a path ending in `/` (a glob tail such as `src/*` counts and is
   proposed as the directory) or `name.ext` with an extension GitHub Linguist lists or a file in
   the root carries. Prose slash pairs and version numbers are never candidates.
+- A bare code symbol is never a candidate. @[Coverage] proposes a path because a resolving path
+  has one referent; a resolving name does not, and the tool never writes a reference it cannot
+  know is the one the author meant. Symbols enter coverage through an alias declaration, after
+  which every use in that file is proposed.
 - `@noref` is **file-scoped**, like an alias: the ignore travels with the text it protects.
   Config `ignore` is root-wide. Matching is exact, plus the path of a `path#Symbol` token and a
   trailing-`/` prefix; no globs.
