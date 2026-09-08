@@ -112,12 +112,12 @@ An ignore list that nobody audits accumulates entries for text that no longer ex
 every linter's suppression file ends up, so unused entries are reported the way unused aliases
 are:
 
-- A `@noref` entry that matched nothing in its file is a @[Coverage] candidate of kind
-  `unused-ignore`, located at the entry's span inside the marker. Duplicates land here too.
-- A config `ignore` entry that matched nothing in any non-excluded file is reported once as an
-  `anchr.toml:` line and, in JSON, as `unused_config_ignores`. It is not a candidate: candidates
-  carry a location in an indexed file, and `anchr.toml` is not one. Only a whole-root run reports
-  these; a run narrowed to some files cannot see where a root-wide entry matches.
+- A `@noref` entry that matched nothing in its file is a @[Coverage] candidate group of kind
+  `unused-ignore`, its site the entry's span inside the marker. Duplicates land here too.
+- A config `ignore` entry that matched nothing in any non-excluded file is reported once, with
+  `anchr.toml` as its only site, and in JSON as `unused_config_ignores`. It is not a candidate:
+  candidates carry a location in an indexed file, and `anchr.toml` is not one. Only a whole-root
+  run reports these; a run narrowed to some files cannot see where a root-wide entry matches.
 - `exclude` globs that match no file are not reported. A glob for a directory that does not
   exist yet is a normal state, as it is for `[scan] exclude`.
 

@@ -11,7 +11,7 @@
 mod linguist;
 mod token;
 
-use std::collections::{BTreeMap, BTreeSet};
+use std::collections::{BTreeMap, BTreeSet, HashMap};
 
 use crate::check::Workspace;
 use crate::edit::TextEdit;
@@ -24,7 +24,7 @@ use crate::span::ByteSpan;
 use crate::text::{Container, FileAnalyzer, RegionKind};
 use token::{KnownExtensions, PathShape, Shape, tokens};
 
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq, Eq, Hash)]
 pub enum CandidateKind {
     /// The target resolves; replacing the token with this marker would add a checked
     /// reference without introducing an error.
@@ -39,13 +39,36 @@ pub enum CandidateKind {
     UnusedIgnore { entry: NoRefEntry },
 }
 
+impl CandidateKind {
+    /// Report order: what can be acted on first, advisories last.
+    fn rank(&self) -> u8 {
+        match self {
+            CandidateKind::Proposal { .. } => 0,
+            CandidateKind::Unresolvable { .. } => 1,
+            CandidateKind::UnusedAlias { .. } => 2,
+            CandidateKind::UnusedIgnore { .. } => 3,
+        }
+    }
+}
+
 #[derive(Debug, Clone, PartialEq, Eq)]
-pub struct Candidate {
+pub struct CandidateSite {
+    pub site: Site,
     /// The bytes a proposal would replace: the token, or the whole code span when the token
     /// is all the code span holds (a marker inside backticks would not be checked).
-    pub site: Site,
     pub text: String,
+}
+
+/// Every site where one token received one verdict. Grouping mirrors `check`, which groups
+/// diagnostics by cause: a header comment repeated in a thousand generated files is one entry
+/// with a thousand sites, not a thousand lines.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct CandidateGroup {
     pub kind: CandidateKind,
+    /// The token as the author wrote it, without the backticks a code span adds.
+    pub token: String,
+    /// Sorted by root, path, and span.
+    pub sites: Vec<CandidateSite>,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
@@ -72,7 +95,9 @@ impl CoverageSummary {
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct CoverageReport {
-    pub candidates: Vec<Candidate>,
+    /// Proposals first, then unresolvable strings, then the advisories; within a kind the
+    /// groups with the most sites come first, ties broken by token.
+    pub candidates: Vec<CandidateGroup>,
     /// `[coverage] ignore` entries that matched nothing. Not candidates: they have no site in
     /// an indexed file.
     pub unused_config_ignores: Vec<NoRefEntry>,
@@ -83,8 +108,11 @@ impl CoverageReport {
     /// The edits `annotate` would make, per file, sorted by span.
     pub fn proposals(&self) -> BTreeMap<FilePath, Vec<TextEdit>> {
         let mut edits: BTreeMap<FilePath, Vec<TextEdit>> = BTreeMap::new();
-        for candidate in &self.candidates {
-            if let CandidateKind::Proposal { replacement } = &candidate.kind {
+        for group in &self.candidates {
+            let CandidateKind::Proposal { replacement } = &group.kind else {
+                continue;
+            };
+            for candidate in &group.sites {
                 edits
                     .entry(candidate.site.path.clone())
                     .or_default()
@@ -100,6 +128,42 @@ impl CoverageReport {
         }
         edits
     }
+}
+
+/// One classified token at one site, before grouping.
+struct Finding {
+    kind: CandidateKind,
+    token: String,
+    site: CandidateSite,
+}
+
+fn group(findings: Vec<Finding>) -> Vec<CandidateGroup> {
+    let mut by_key: HashMap<(CandidateKind, String), Vec<CandidateSite>> = HashMap::new();
+    for finding in findings {
+        by_key
+            .entry((finding.kind, finding.token))
+            .or_default()
+            .push(finding.site);
+    }
+    let mut groups: Vec<CandidateGroup> = by_key
+        .into_iter()
+        .map(|((kind, token), mut sites)| {
+            sites.sort_by(|a, b| a.site.cmp(&b.site));
+            CandidateGroup { kind, token, sites }
+        })
+        .collect();
+    groups.sort_by(|a, b| {
+        a.kind
+            .rank()
+            .cmp(&b.kind.rank())
+            .then_with(|| b.sites.len().cmp(&a.sites.len()))
+            .then_with(|| a.token.cmp(&b.token))
+            .then_with(|| {
+                let first = |group: &CandidateGroup| group.sites.first().map(|c| c.site.clone());
+                first(a).cmp(&first(b))
+            })
+    });
+    groups
 }
 
 /// Scans the current root. `only_files` and `[coverage] exclude` narrow which files are scanned
@@ -125,7 +189,7 @@ pub fn coverage(workspace: &Workspace, only_files: &[FilePath]) -> CoverageRepor
     let mut paths: Vec<&FilePath> = index.file_paths().filter(|path| in_scope(path)).collect();
     paths.sort();
 
-    let mut candidates = Vec::new();
+    let mut findings = Vec::new();
     let mut ignored = 0;
     for path in paths {
         let Some(record) = index.file_record(path) else {
@@ -182,18 +246,21 @@ pub fn coverage(workspace: &Workspace, only_files: &[FilePath]) -> CoverageRepor
                 let Some(kind) = kind else {
                     continue;
                 };
-                candidates.push(Candidate {
-                    site: Site {
-                        root: root.name.clone(),
-                        path: path.clone(),
-                        span,
-                        region: region.kind,
-                    },
-                    text: source
-                        .get(span.start..span.end)
-                        .unwrap_or(&token.text)
-                        .to_owned(),
+                findings.push(Finding {
                     kind,
+                    token: token.text.clone(),
+                    site: CandidateSite {
+                        site: Site {
+                            root: root.name.clone(),
+                            path: path.clone(),
+                            span,
+                            region: region.kind,
+                        },
+                        text: source
+                            .get(span.start..span.end)
+                            .unwrap_or(&token.text)
+                            .to_owned(),
+                    },
                 });
             }
         }
@@ -204,16 +271,19 @@ pub fn coverage(workspace: &Workspace, only_files: &[FilePath]) -> CoverageRepor
                 .iter()
                 .find(|marker| marker.span.contains(item.span.start))
                 .map_or(RegionKind::Prose, |marker| marker.region);
-            candidates.push(Candidate {
-                site: Site {
-                    root: root.name.clone(),
-                    path: path.clone(),
-                    span: item.span,
-                    region,
-                },
-                text: entry.to_string(),
+            findings.push(Finding {
                 kind: CandidateKind::UnusedIgnore {
                     entry: entry.clone(),
+                },
+                token: entry.to_string(),
+                site: CandidateSite {
+                    site: Site {
+                        root: root.name.clone(),
+                        path: path.clone(),
+                        span: item.span,
+                        region,
+                    },
+                    text: entry.to_string(),
                 },
             });
         }
@@ -235,16 +305,19 @@ pub fn coverage(workspace: &Workspace, only_files: &[FilePath]) -> CoverageRepor
                     .find(|marker| marker.span.contains(alias_span.start))
             })
             .map_or(RegionKind::Prose, |marker| marker.region);
-        candidates.push(Candidate {
-            site: Site {
-                root: root.name.clone(),
-                path: path.clone(),
-                span: alias_span,
-                region,
-            },
-            text: alias.to_string(),
+        findings.push(Finding {
             kind: CandidateKind::UnusedAlias {
                 alias: alias.clone(),
+            },
+            token: alias.to_string(),
+            site: CandidateSite {
+                site: Site {
+                    root: root.name.clone(),
+                    path: path.clone(),
+                    span: alias_span,
+                    region,
+                },
+                text: alias.to_string(),
             },
         });
     }
@@ -270,8 +343,8 @@ pub fn coverage(workspace: &Workspace, only_files: &[FilePath]) -> CoverageRepor
         unused_ignores: unused_config_ignores.len(),
         ..CoverageSummary::default()
     };
-    for candidate in &candidates {
-        match candidate.kind {
+    for finding in &findings {
+        match finding.kind {
             CandidateKind::Proposal { .. } => summary.proposals += 1,
             CandidateKind::Unresolvable { .. } => summary.unresolvable += 1,
             CandidateKind::UnusedAlias { .. } => summary.unused_aliases += 1,
@@ -279,7 +352,7 @@ pub fn coverage(workspace: &Workspace, only_files: &[FilePath]) -> CoverageRepor
         }
     }
     CoverageReport {
-        candidates,
+        candidates: group(findings),
         unused_config_ignores,
         summary,
     }
@@ -346,12 +419,22 @@ mod tests {
         }
     }
 
-    fn describe(report: &CoverageReport) -> Vec<(String, String, String)> {
-        report
+    /// Every site in file order, so tests read like the fixture text.
+    fn sites(report: &CoverageReport) -> Vec<(&CandidateKind, &CandidateSite)> {
+        let mut sites: Vec<(&CandidateKind, &CandidateSite)> = report
             .candidates
             .iter()
-            .map(|c| {
-                let kind = match &c.kind {
+            .flat_map(|group| group.sites.iter().map(move |site| (&group.kind, site)))
+            .collect();
+        sites.sort_by(|a, b| a.1.site.cmp(&b.1.site));
+        sites
+    }
+
+    fn describe(report: &CoverageReport) -> Vec<(String, String, String)> {
+        sites(report)
+            .into_iter()
+            .map(|(kind, c)| {
+                let kind = match kind {
                     CandidateKind::Proposal { replacement } => format!("propose {replacement}"),
                     CandidateKind::Unresolvable { .. } => "unresolvable".to_owned(),
                     CandidateKind::UnusedAlias { .. } => "unused alias".to_owned(),
@@ -614,13 +697,12 @@ mod tests {
                 row("docs/a.md", "foo.ts", "unused ignore"),
             ]
         );
-        let spans: Vec<&str> = report
-            .candidates
+        let spans: Vec<&str> = sites(&report)
             .iter()
-            .map(|c| &source[c.site.span.start..c.site.span.end])
+            .map(|(_, c)| &source[c.site.span.start..c.site.span.end])
             .collect();
         assert_eq!(spans, vec!["bar.md", "foo.ts"]);
-        assert_eq!(report.candidates[1].site.span.start, 23);
+        assert_eq!(sites(&report)[1].1.site.span.start, 23);
         assert_eq!(report.summary.ignored, 1);
         assert_eq!(report.summary.unused_ignores, 2);
         assert!(report.proposals().is_empty());
@@ -676,6 +758,56 @@ mod tests {
             "a narrowed run cannot judge root-wide entries"
         );
         assert_eq!(narrowed.summary.unused_ignores, 0);
+    }
+
+    #[test]
+    fn one_token_with_one_verdict_is_one_group_and_groups_have_a_fixed_order() {
+        let fixture = Fixture::new(&[
+            (
+                "docs/a.md",
+                "@ref[docs/guide.md as Guide] @ref[docs/guide.md as Spare]\nSee gen.js, `gen.js`, and `docs/guide.md`; the Guide and `Guide` (@[Guide]).\n",
+            ),
+            ("docs/b.md", "Header from gen.js.\n"),
+            ("docs/guide.md", "# Guide\n"),
+            ("src/x.rs", "// Generated by gen.js\n"),
+        ]);
+        let report = fixture.coverage();
+        let described: Vec<(&str, &str, usize)> = report
+            .candidates
+            .iter()
+            .map(|group| {
+                let kind = match &group.kind {
+                    CandidateKind::Proposal { .. } => "proposal",
+                    CandidateKind::Unresolvable { .. } => "unresolvable",
+                    CandidateKind::UnusedAlias { .. } => "unused alias",
+                    CandidateKind::UnusedIgnore { .. } => "unused ignore",
+                };
+                (kind, group.token.as_str(), group.sites.len())
+            })
+            .collect();
+        assert_eq!(
+            described,
+            vec![
+                ("proposal", "Guide", 2),
+                ("proposal", "docs/guide.md", 1),
+                ("unresolvable", "gen.js", 4),
+                ("unused alias", "Spare", 1),
+            ]
+        );
+        let generated = &report.candidates[2];
+        let paths: Vec<String> = generated
+            .sites
+            .iter()
+            .map(|c| c.site.path.to_string())
+            .collect();
+        assert_eq!(
+            paths,
+            vec!["docs/a.md", "docs/a.md", "docs/b.md", "src/x.rs"]
+        );
+        let texts: Vec<&str> = generated.sites.iter().map(|c| c.text.as_str()).collect();
+        assert_eq!(texts, vec!["gen.js", "`gen.js`", "gen.js", "gen.js"]);
+        assert_eq!(report.summary.unresolvable, 4);
+        assert_eq!(report.summary.proposals, 3);
     }
 
     #[test]

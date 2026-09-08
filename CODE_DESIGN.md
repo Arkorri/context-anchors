@@ -955,6 +955,21 @@ Refinements the code made to the design above, recorded so the document stays th
     unique by construction. @[Coverage] no longer parses every source file per run. On this
     repository: 307 of 355 annotated, 27 could be, 21 ambiguous → 307 of 307, no candidates.
 
+17. **@[Coverage] groups by token, the way @[Check] groups by cause.** Run against a 14,000-file
+    monorepo, the flat report was 2,935 lines, and 1,762 of them were one token: a header comment
+    in every generated type file. Nobody reads past the first screen of that, human or agent. The
+    report is now one group per (verdict, token) with its sites listed beneath it, in both
+    formats: the human form is a title line, ` --> path:line:col` per site, and the same 40-site
+    cap @[Check] uses; the JSON form is one object per group with `count` and `sites`, each site
+    keeping its exact text because a proposal's edit must match bytes. Groups are ordered
+    proposals, unresolvable, unused aliases, unused ignores, then by site count descending, then
+    by token, so the largest actionable item is always first. Grouping happens in the core
+    (@ref[crates/anchr-core/src/coverage/mod.rs#CandidateGroup]), not the renderer, so every
+    consumer sees the same shape. Summary counts still count sites. On the monorepo: 2,935 lines
+    → 1,937, and the JSON candidate list 2,934 entries → 724 groups. Most groups have one site,
+    so the human report only halves; the point is that the thousand-site group is now one entry
+    at the top of its kind instead of the whole report.
+
 ## 13. Research appendix
 
 The research this design rests on lives in @ref[docs/research/]:
