@@ -580,7 +580,6 @@ mod tests {
             ("[coverage]\nexclude = [\"\"]\n", "coverage.exclude"),
             ("[coverage]\nignore = [\"\"]\n", "coverage.ignore"),
             ("[coverage]\nignore = [\"a b\"]\n", "coverage.ignore"),
-            ("[coverage]\nignore = [\"a,b\"]\n", "coverage.ignore"),
             ("[coverage]\nignore = [\"x\", \"x\"]\n", "coverage.ignore"),
         ];
         for (text, expected_field) in cases {

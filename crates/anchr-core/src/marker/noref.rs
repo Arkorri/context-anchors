@@ -1,16 +1,24 @@
+use std::cmp::Ordering;
 use std::fmt;
+use std::hash::{Hash, Hasher};
+
+use globset::{Glob, GlobBuilder, GlobMatcher};
 
 use crate::span::ByteSpan;
 
 pub const MAX_NOREF_ENTRY_BYTES: usize = 256;
 
-/// One string that `@noref[...]` or `[coverage] ignore` declares is not a reference.
+/// One glob that `@noref[...]` or `[ignore] tokens` declares matches no reference.
 ///
-/// Plain text, never a target: it is compared to coverage tokens, not resolved. The excluded
-/// characters are the ones that would be ambiguous inside a marker body (`,` `[` `]`) or that no
-/// coverage token can contain (whitespace, `@`, backtick).
-#[derive(Debug, Clone, PartialEq, Eq, Hash, PartialOrd, Ord)]
-pub struct NoRefEntry(String);
+/// Matched against whole coverage tokens, never resolved. `*` stays inside one path segment and
+/// `**` crosses them, so `src/` is only the bare token and `src/**` is the subtree. Whitespace,
+/// `@`, and backticks are rejected because no token contains them; `[` `]` `,` are legal in a
+/// config entry and simply cannot be written inside a marker body.
+#[derive(Debug, Clone)]
+pub struct NoRefEntry {
+    raw: String,
+    glob: Glob,
+}
 
 #[derive(Debug, Clone, PartialEq, Eq, Hash, thiserror::Error)]
 pub enum NoRefEntryError {
@@ -22,6 +30,8 @@ pub enum NoRefEntryError {
     Whitespace,
     #[error("entry contains `{ch}`, which cannot appear in an ignored string")]
     InvalidChar { ch: char },
+    #[error("entry is not a valid glob: {reason}")]
+    Glob { reason: String },
 }
 
 impl NoRefEntry {
@@ -35,23 +45,61 @@ impl NoRefEntry {
         if raw.contains(char::is_whitespace) {
             return Err(NoRefEntryError::Whitespace);
         }
-        if let Some(ch) = raw
-            .chars()
-            .find(|ch| matches!(ch, ',' | '[' | ']' | '@' | '`'))
-        {
+        if let Some(ch) = raw.chars().find(|ch| matches!(ch, '@' | '`')) {
             return Err(NoRefEntryError::InvalidChar { ch });
         }
-        Ok(Self(raw.to_owned()))
+        // Explicit because globset picks the escape default per platform.
+        let glob = GlobBuilder::new(raw)
+            .literal_separator(true)
+            .backslash_escape(true)
+            .build()
+            .map_err(|error| NoRefEntryError::Glob {
+                reason: error.kind().to_string(),
+            })?;
+        Ok(Self {
+            raw: raw.to_owned(),
+            glob,
+        })
     }
 
     pub fn as_str(&self) -> &str {
-        &self.0
+        &self.raw
+    }
+
+    pub fn matcher(&self) -> GlobMatcher {
+        self.glob.compile_matcher()
+    }
+}
+
+impl PartialEq for NoRefEntry {
+    fn eq(&self, other: &Self) -> bool {
+        self.raw == other.raw
+    }
+}
+
+impl Eq for NoRefEntry {}
+
+impl Hash for NoRefEntry {
+    fn hash<H: Hasher>(&self, state: &mut H) {
+        self.raw.hash(state);
+    }
+}
+
+impl PartialOrd for NoRefEntry {
+    fn partial_cmp(&self, other: &Self) -> Option<Ordering> {
+        Some(self.cmp(other))
+    }
+}
+
+impl Ord for NoRefEntry {
+    fn cmp(&self, other: &Self) -> Ordering {
+        self.raw.cmp(&other.raw)
     }
 }
 
 impl fmt::Display for NoRefEntry {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        f.write_str(&self.0)
+        f.write_str(&self.raw)
     }
 }
 
@@ -122,7 +170,7 @@ mod tests {
     use super::*;
 
     #[test]
-    fn accepts_paths_symbols_and_directories() {
+    fn accepts_paths_symbols_directories_and_globs() {
         for raw in [
             "foo.ts",
             "src/file.ts#Name",
@@ -130,6 +178,12 @@ mod tests {
             "CLAUDE.md",
             "anchr",
             "Ünïcode.md",
+            "src/**",
+            "*.md",
+            "**/CLAUDE.md",
+            "docs/[ab].md",
+            "{a,b}.md",
+            "x?.ts",
         ] {
             assert_eq!(NoRefEntry::parse(raw).unwrap().as_str(), raw);
         }
@@ -140,19 +194,17 @@ mod tests {
         assert_eq!(NoRefEntry::parse(""), Err(NoRefEntryError::Empty));
         assert_eq!(NoRefEntry::parse("a b"), Err(NoRefEntryError::Whitespace));
         assert_eq!(NoRefEntry::parse("a\tb"), Err(NoRefEntryError::Whitespace));
-        for (raw, ch) in [
-            ("a,b", ','),
-            ("a[b", '['),
-            ("a]b", ']'),
-            ("a@b", '@'),
-            ("`a`", '`'),
-        ] {
+        for (raw, ch) in [("a@b", '@'), ("`a`", '`')] {
             assert_eq!(
                 NoRefEntry::parse(raw),
                 Err(NoRefEntryError::InvalidChar { ch }),
                 "{raw}"
             );
         }
+        assert!(matches!(
+            NoRefEntry::parse("docs/["),
+            Err(NoRefEntryError::Glob { .. })
+        ));
         let longest = "a".repeat(MAX_NOREF_ENTRY_BYTES);
         assert!(NoRefEntry::parse(&longest).is_ok());
         assert_eq!(
@@ -161,6 +213,14 @@ mod tests {
                 len: MAX_NOREF_ENTRY_BYTES + 1
             })
         );
+    }
+
+    #[test]
+    fn entries_compare_by_their_text() {
+        let a = NoRefEntry::parse("a.md").unwrap();
+        assert_eq!(a, NoRefEntry::parse("a.md").unwrap());
+        assert_ne!(a, NoRefEntry::parse("b.md").unwrap());
+        assert!(a < NoRefEntry::parse("b.md").unwrap());
     }
 
     #[test]

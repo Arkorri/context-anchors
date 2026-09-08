@@ -736,12 +736,16 @@ mod tests {
 
     #[test]
     fn noref_lists_suppress_every_token_shape_in_their_file_only() {
+        // `src/**` in a.md claims the subtree; the bare `src/` in b.md claims only that token.
         let fixture = Fixture::new(&[
             (
                 "docs/a.md",
-                "@noref[docs/guide.md, src/, Guide]\n@ref[docs/guide.md as Guide]\nSee `docs/guide.md`, src/x.rs, `src/x.rs#run`, src/*, src/, and Guide (@[Guide]).\n",
+                "@noref[docs/guide.md, src/**, Guide]\n@ref[docs/guide.md as Guide]\nSee `docs/guide.md`, src/x.rs, `src/x.rs#run`, src/*, src/, and Guide (@[Guide]).\n",
             ),
-            ("docs/b.md", "See `docs/guide.md` and src/x.rs.\n"),
+            (
+                "docs/b.md",
+                "@noref[src/]\nSee `docs/guide.md`, src/x.rs, and src/.\n",
+            ),
             ("docs/guide.md", "# Guide\n"),
             ("src/x.rs", "pub fn run() {}\n"),
         ]);
@@ -757,7 +761,7 @@ mod tests {
                 row("docs/b.md", "src/x.rs", "propose @ref[src/x.rs]"),
             ]
         );
-        assert_eq!(report.summary.ignored, 6);
+        assert_eq!(report.summary.ignored, 7);
         assert_eq!(report.summary.unused_ignores, 0);
         assert_eq!(report.summary.annotated_refs, 2);
         assert_eq!(report.summary.total(), 4);
