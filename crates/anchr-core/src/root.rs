@@ -181,7 +181,7 @@ pub struct RootSet {
 }
 
 impl RootSet {
-    /// `current_dir` must be absolute. External roots load their own `anchr.toml` for scan and
+    /// `current_dir` must be absolute. External roots load their own @ref[anchr.toml] for scan and
     /// container settings; their `[roots]` and `[check]` tables are not consulted.
     pub fn load(current_dir: Utf8PathBuf, current_config: Config) -> Result<Self, RootSetError> {
         let current = match &current_config.root_name {

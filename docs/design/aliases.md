@@ -299,7 +299,7 @@ file's aliases. No new filesystem reads. The lexer stays a single linear-time re
 ## 8. Deferred, with reasoning
 <!-- @anchor[aliases/deferred] -->
 
-- **Root-level alias table** (`[aliases]` in `anchr.toml`). Removes per-file redeclaration but makes
+- **Root-level alias table** (`[aliases]` in @ref[anchr.toml]). Removes per-file redeclaration but makes
   a use depend on state outside the file, the property file scope buys. Revisit if redeclaration
   measurably hurts.
 - **A "not a reference" marker** for acknowledging coverage candidates. Shipped since, as `@noref`

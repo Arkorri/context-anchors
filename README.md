@@ -37,13 +37,13 @@ Prebuilt binaries for macOS, Linux, and Windows are attached to each GitHub rele
 ```sh
 # shell installer (macOS, Linux)
 curl --proto '=https' --tlsv1.2 -LsSf \
-  https://github.com/averykempton/context-anchors/releases/latest/download/context-anchors-installer.sh | sh
+  https://github.com/Arkorri/context-anchors/releases/latest/download/context-anchors-installer.sh | sh
 
 # npm: a native binary via a platform-specific optional dependency, no postinstall download
 npx context-anchors check
 
 # from source
-cargo install --git https://github.com/averykempton/context-anchors context-anchors
+cargo install --git https://github.com/Arkorri/context-anchors context-anchors
 ```
 
 ## Use
@@ -91,7 +91,7 @@ A file that mentions one target many times declares it once and uses a short loc
 `@noref` lists strings that look like references in this file and are not, such as example paths;
 `anchr coverage` stops proposing them and reports any entry that no longer matches anything.
 Entries are globs matched against the whole string, so `src/**` covers a subtree and `src/` only
-the word itself; `[ignore] tokens` in `anchr.toml` takes the same entries root-wide, and
+the word itself; `[ignore] tokens` in @ref[anchr.toml] takes the same entries root-wide, and
 `[ignore] paths` lists files anchr never looks at, in gitignore syntax. A string looks like a
 reference when it ends in `/` or is `name.ext` with an extension GitHub Linguist lists or a file
 in the repository carries; a glob such as `src/*` is proposed as `src/`.
@@ -115,4 +115,4 @@ comments (outside backtick spans), and in `.txt` files. Configuration lives in @
 
 ## License
 
-MIT or Apache-2.0, at your option.
+MIT or Apache-2.0, at your option: @ref[LICENSE-MIT] and @ref[LICENSE-APACHE].

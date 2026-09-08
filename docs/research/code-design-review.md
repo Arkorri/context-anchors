@@ -77,7 +77,7 @@ Fix: check the preceding `char` via `source[..start].chars().next_back()`. Keep 
 Add: CRLF files and `\r` inside a body; multi-byte text before a marker (offset and line/col); escaped `@ref\[x\]` in markdown is not lexed (the source-slice approach makes this a free escape hatch, worth documenting); fenced block inside blockquote and list item, tilde fence, longer closing fence, unclosed fence at EOF, indented code inside a nested list (the complement approach's only failure mode is an imprecise code range letting an example through); undeclared root ⇒ error versus absent ⇒ unverified; case-mismatched path; parse-error tree ⇒ unverified (finding 2); a human-output snapshot with color forced off; `PATHS` filtering semantics; a bad-config exit-2 snapshot with the caret rendering.
 
 **19. Should-fix. §5 `init`. Under-specified for a command that writes files.**
-It writes `anchr.toml`, instructions, and hook config. Hook config for Claude Code means merging into `.claude/settings.json`, a JSON document with existing content. No overwrite policy, no dry run, no idempotency rule.
+It writes @ref[anchr.toml], instructions, and hook config. Hook config for Claude Code means merging into @ref[.claude/settings.json], a JSON document with existing content. No overwrite policy, no dry run, no idempotency rule.
 Fix: never overwrite an existing file without `--force`; settings merge via `serde_json::Value` read-modify-write that preserves unknown keys; print every path written; `--dry-run`. Or defer hook writing to printing instructions, which is what @ref[DISTRIBUTION.md] §5 implies for non-Claude vendors anyway.
 
 **20. Nit. §3.5 / §6 / §8. `DashMap` and the parallelism story contradict each other.**
@@ -88,7 +88,7 @@ Fix: single-threaded resolution, `HashMap`, drop `dashmap`. Parallelize later if
 That conflicts with the governing "default to no comment" principle and with the plan's own stance. Drop it or scope it to the crate root.
 
 **22. Nit. §10 claims stated as structural that are not.**
-"Output never contains file content" is false for the human renderer (snippets are file lines). "Every config file is untrusted" is aspirational: a hostile `anchr.toml` can declare `roots.home = "~"` and the tool will walk it. `max-file-bytes` is user-settable above `u32::MAX`, which `text-size` cannot represent. There is no parse deadline on tree-sitter for pathological inputs.
+"Output never contains file content" is false for the human renderer (snippets are file lines). "Every config file is untrusted" is aspirational: a hostile @ref[anchr.toml] can declare `roots.home = "~"` and the tool will walk it. `max-file-bytes` is user-settable above `u32::MAX`, which `text-size` cannot represent. There is no parse deadline on tree-sitter for pathological inputs.
 Fix: reword the first two honestly (config is parsed defensively, its declared roots are trusted). Validate `max-file-bytes <= u32::MAX` after deserialization. Use `parse_with_options` with a progress callback that aborts after a budget, reported as `Unverified::ParseTimeout`.
 
 **23. Nit. §5 `--strict`. The name promises more than "absent root is an error."**

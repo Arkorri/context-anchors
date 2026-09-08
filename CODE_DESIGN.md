@@ -539,7 +539,7 @@ Exit codes: 0 clean (unverified may be present), 1 errors, 2 tool failure.
 
 ## 4. Config (@ref[crates/anchr-core/src/config.rs#Config])
 
-`anchr.toml`, discovered with `cwd.ancestors().find(|d| d.join("anchr.toml").is_file())` (or
+@ref[anchr.toml], discovered with `cwd.ancestors().find(|d| d.join("anchr.toml").is_file())` (or
 `--root`), falling back to the nearest ancestor containing `.git`, then cwd. Missing file ⇒
 defaults. `#[serde(deny_unknown_fields, rename_all = "kebab-case")]` on every struct,
 `#[serde(default)]` on every section; syntax errors surface with `toml::de::Error`'s byte span
@@ -575,7 +575,7 @@ The current root needs a @ref[crates/anchr-core/src/root.rs#RootName] for every
 @[Site]; `[root] name` provides it, defaulting to the directory's
 basename (validated; an invalid basename is a config error that names the fix).
 
-External roots load *their own* `anchr.toml` for `[scan]`, `[containers]`, and `[ignore] paths`
+External roots load *their own* @ref[anchr.toml] for `[scan]`, `[containers]`, and `[ignore] paths`
 if one exists; otherwise defaults. Their `[roots]`, `[check]`, and `[ignore] tokens` are ignored,
 and they are scanned anchors-only (§3.3). Root cycles are therefore impossible. Config is parsed defensively (schema,
 bounds, spans), but the *roots it declares are trusted*: a config pointing a root at `~` walks `~`.
@@ -601,8 +601,8 @@ are reported regardless of the filter because they affect the whole root).
 
 In milestone 1, @[Init] (@ref[crates/context-anchors/src/commands/init.rs]) is the only writing
 command. Rules: never overwrite an existing file without `--force`; `--dry-run` prints what would be
-written; every path written is printed. It writes `anchr.toml` and an `AGENTS.md`-compatible
-instruction block. For `--agent claude` it merges a `PostToolUse` hook into `.claude/settings.json`
+written; every path written is printed. It writes @ref[anchr.toml] and an `AGENTS.md`-compatible
+instruction block. For `--agent claude` it merges a `PostToolUse` hook into @ref[.claude/settings.json]
 via a `serde_json::Value` read-modify-write that preserves every key it does not own, and refuses
 (with the exact JSON to paste) if that file is not valid JSON. Idempotent: running @[Init] twice is
 a no-op the second time. @ref[#cli/lsp], @[Backrefs], @[Rename], and @[Coverage] are v1.1
@@ -972,7 +972,7 @@ Refinements the code made to the design above, recorded so the document stays th
 14. **@[Coverage] ignores.** Once the repository was annotated, most remaining coverage candidates
     were classified correctly and still were not references: example paths, files that exist in
     a user's repository. `@noref[a, b/]` declares them per file and a root-wide list in
-    `anchr.toml` per root; both share one matcher
+    @ref[anchr.toml] per root; both share one matcher
     (@ref[crates/anchr-core/src/noref.rs#NoRefSet]) and every entry that matches nothing is
     reported, the way an unused alias is. @[Check] lexes the marker and otherwise never sees it.
     Design in @ref[docs/design/ignores.md]. The config shape and the matcher's exact-plus-prefix
