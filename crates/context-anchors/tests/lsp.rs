@@ -407,3 +407,45 @@ fn alias_uses_navigate_through_their_declaration_and_rename_within_their_file() 
 
     client.shutdown();
 }
+
+#[test]
+fn file_relative_paths_navigate_to_the_anchored_file() {
+    let dir = tempfile::tempdir().unwrap();
+    let root = dir.path().join("repo");
+    std::fs::create_dir_all(root.join("docs")).unwrap();
+    std::fs::write(root.join("docs/guide.md"), "# Guide\n").unwrap();
+    std::fs::write(root.join("docs/other.md"), "See @ref[./guide.md].\n").unwrap();
+    let guide_uri = file_uri(&root.join("docs/guide.md"));
+    let other_uri = file_uri(&root.join("docs/other.md"));
+
+    let mut client = Client::start(&root);
+    client.request(
+        "initialize",
+        json!({
+            "processId": null,
+            "rootUri": file_uri(&root),
+            "capabilities": { "general": { "positionEncodings": ["utf-8"] } },
+        }),
+    );
+    client.notify("initialized", json!({}));
+    let other_text = std::fs::read_to_string(root.join("docs/other.md")).unwrap();
+    client.notify(
+        "textDocument/didOpen",
+        json!({ "textDocument": { "uri": other_uri, "languageId": "markdown", "version": 1, "text": other_text } }),
+    );
+    assert!(client.diagnostics_for(&other_uri).is_empty());
+
+    let definition = client.request(
+        "textDocument/definition",
+        json!({ "textDocument": { "uri": other_uri }, "position": { "line": 0, "character": 8 } }),
+    );
+    let locations = definition["result"].as_array().unwrap();
+    assert_eq!(locations.len(), 1);
+    assert_eq!(locations[0]["uri"], guide_uri);
+    assert_eq!(
+        locations[0]["range"]["start"],
+        json!({ "line": 0, "character": 0 })
+    );
+
+    client.shutdown();
+}

@@ -61,7 +61,7 @@ pub enum DiagnosticKind {
 
 impl DiagnosticKind {
     /// Intrinsic severity; `--strict` promotes
-    /// @ref[crates/anchr-core/src/resolve/mod.rs#Unverified] at report time.
+    /// @ref[./resolve/mod.rs#Unverified] at report time.
     pub fn base_severity(&self) -> Severity {
         match self {
             DiagnosticKind::Unresolved(_)

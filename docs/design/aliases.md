@@ -304,7 +304,7 @@ file's aliases. No new filesystem reads. The lexer stays a single linear-time re
   measurably hurts.
 - **A "not a reference" marker** for acknowledging coverage candidates. Shipped since, as `@noref`
   plus `[coverage] ignore`, once the annotated repository showed that most remaining candidates
-  were correctly classified and still not references: @ref[docs/design/ignores.md].
+  were correctly classified and still not references: @ref[./ignores.md].
 - **CLI alias rename.** `anchr rename` stays anchor-only; file-local rename is a language-server
   operation until a CLI need appears.
 - **Warning severity in @[Check].** Unused aliases would be the first warning. @[Coverage] is the

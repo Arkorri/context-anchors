@@ -13,15 +13,21 @@ mod token;
 
 use std::collections::{BTreeMap, BTreeSet, HashMap};
 
+use camino::Utf8Path;
+
 use crate::check::Workspace;
+use crate::diagnostic::DiagnosticKind;
 use crate::edit::TextEdit;
 use crate::index::Site;
-use crate::marker::{Alias, MarkerPayload, NoRefEntry, NoRefItem, parse_target};
+use crate::marker::{
+    Alias, MarkerPayload, NoRefEntry, NoRefItem, RefTarget, RelPath, parse_target,
+};
 use crate::noref::NoRefSet;
-use crate::resolve::{Resolution, Resolver};
-use crate::root::{FilePath, RootName};
+use crate::resolve::{Resolution, Resolver, Unresolved};
+use crate::root::{FilePath, Root};
 use crate::span::ByteSpan;
 use crate::text::{Container, FileAnalyzer, RegionKind};
+use crate::tree::FileTree;
 use token::{KnownExtensions, PathShape, Shape, tokens};
 
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
@@ -237,7 +243,7 @@ pub fn coverage(workspace: &Workspace, only_files: &[FilePath]) -> CoverageRepor
                 }
                 let kind = match &token.shape {
                     Shape::Path(shape) => {
-                        classify_path(&mut resolver, &root.name, &token.text, *shape)
+                        classify_path(&mut resolver, root, index.tree(), path, &token.text, *shape)
                     }
                     Shape::Alias(alias) => Some(CandidateKind::Proposal {
                         replacement: format!("@[{alias}]"),
@@ -358,10 +364,14 @@ pub fn coverage(workspace: &Workspace, only_files: &[FilePath]) -> CoverageRepor
     }
 }
 
-/// A glob tail names the directory it globs, so `src/**` is checked and proposed as `src/`.
+/// A glob tail names the directory it globs, so `src/**` is checked and proposed as `src/`. A
+/// bare token is root-relative first; one that misses may have been written the way Markdown
+/// links are, relative to the file, and falls through to `relative_fallback`.
 fn classify_path(
     resolver: &mut Resolver<'_>,
-    current: &RootName,
+    root: &Root,
+    tree: &FileTree,
+    file: &FilePath,
     token: &str,
     shape: PathShape,
 ) -> Option<CandidateKind> {
@@ -369,18 +379,87 @@ fn classify_path(
         PathShape::Glob => token.trim_end_matches('*'),
         PathShape::File | PathShape::Directory => token,
     };
-    let target = parse_target(target_text).ok()?.target;
-    Some(match resolver.resolve(current, &target) {
+    // `./` and `../` alone name the writing file's own directory or its parent, which always
+    // exist: prose about the syntax, never a reference.
+    if target_text.chars().all(|ch| ch == '.' || ch == '/') {
+        return None;
+    }
+    let target = parse_target(target_text, Some(file)).ok()?.target;
+    Some(match resolver.resolve(&root.name, &target) {
         Resolution::Resolved => CandidateKind::Proposal {
             replacement: format!("@ref[{target_text}]"),
         },
-        Resolution::Unresolved(unresolved) => CandidateKind::Unresolvable {
-            reason: crate::diagnostic::DiagnosticKind::Unresolved(unresolved).to_string(),
-        },
+        Resolution::Unresolved(missing @ Unresolved::PathMissing { .. })
+            if target.root().is_none() =>
+        {
+            relative_fallback(resolver, root, tree, file, target_text, &target, missing)
+        }
+        Resolution::Unresolved(unresolved) => unresolvable(unresolved),
         Resolution::Unverified(unverified) => CandidateKind::Unresolvable {
-            reason: crate::diagnostic::DiagnosticKind::Unverified(unverified).to_string(),
+            reason: DiagnosticKind::Unverified(unverified).to_string(),
         },
     })
+}
+
+fn unresolvable(unresolved: Unresolved) -> CandidateKind {
+    CandidateKind::Unresolvable {
+        reason: DiagnosticKind::Unresolved(unresolved).to_string(),
+    }
+}
+
+/// Same directory proposes the `./` form with the author's spelling kept; exactly one ancestor
+/// proposes the root-relative path; otherwise the token stays unresolvable, naming the one file
+/// of that name if there is exactly one. Resolution goes through the resolver so directory
+/// expectations and symbol lookups keep their meaning.
+fn relative_fallback(
+    resolver: &mut Resolver<'_>,
+    root: &Root,
+    tree: &FileTree,
+    file: &FilePath,
+    target_text: &str,
+    target: &RefTarget,
+    missing: Unresolved,
+) -> CandidateKind {
+    let Some(path) = target.path() else {
+        return unresolvable(missing);
+    };
+    let tail = target_text.strip_prefix(path.as_str()).unwrap_or("");
+    let mut resolves_under = |base: &Utf8Path| -> Option<RelPath> {
+        let joined = if base.as_str().is_empty() {
+            path.as_str().to_owned()
+        } else {
+            format!("{base}/{path}")
+        };
+        let candidate = RelPath::parse(&joined).ok()?;
+        let resolution = resolver.resolve(&root.name, &target.with_path(candidate.clone()));
+        (resolution == Resolution::Resolved).then_some(candidate)
+    };
+
+    let dir = file.directory();
+    if !dir.as_str().is_empty() && resolves_under(dir).is_some() {
+        return CandidateKind::Proposal {
+            replacement: format!("@ref[./{target_text}]"),
+        };
+    }
+    let mut hits = dir
+        .ancestors()
+        .skip(1)
+        .filter(|ancestor| !ancestor.as_str().is_empty())
+        .filter_map(resolves_under);
+    if let (Some(candidate), None) = (hits.next(), hits.next()) {
+        return CandidateKind::Proposal {
+            replacement: format!("@ref[{candidate}{tail}]"),
+        };
+    }
+
+    let mut reason = DiagnosticKind::Unresolved(missing).to_string();
+    if let [found] = tree.by_basename(path.file_name())[..] {
+        reason.push_str(&format!(
+            "; one file named `{}` exists at `{found}`",
+            path.file_name()
+        ));
+    }
+    CandidateKind::Unresolvable { reason }
 }
 
 #[cfg(test)]
@@ -808,6 +887,93 @@ mod tests {
         assert_eq!(texts, vec!["gen.js", "`gen.js`", "gen.js", "gen.js"]);
         assert_eq!(report.summary.unresolvable, 4);
         assert_eq!(report.summary.proposals, 3);
+    }
+
+    #[test]
+    fn bare_tokens_that_resolve_beside_their_file_are_proposed_with_dot_slash() {
+        let fixture = Fixture::new(&[
+            (
+                "docs/a.md",
+                "See guide.md, `sub/x.md`, x.rs#run and sub/*.\n",
+            ),
+            ("docs/guide.md", "# Guide\n"),
+            ("docs/sub/x.md", ""),
+            ("docs/x.rs", "pub fn run() {}\n"),
+        ]);
+        assert_eq!(
+            describe(&fixture.coverage()),
+            vec![
+                row("docs/a.md", "guide.md", "propose @ref[./guide.md]"),
+                row("docs/a.md", "`sub/x.md`", "propose @ref[./sub/x.md]"),
+                row("docs/a.md", "x.rs#run", "propose @ref[./x.rs#run]"),
+                row("docs/a.md", "sub/*", "propose @ref[./sub/]"),
+            ]
+        );
+    }
+
+    #[test]
+    fn dot_only_tokens_are_prose_about_the_syntax() {
+        let fixture = Fixture::new(&[
+            (
+                "docs/a.md",
+                "Write `./` or `../` for relative paths, never `../../`.\n",
+            ),
+            ("docs/guide.md", ""),
+        ]);
+        let report = fixture.coverage();
+        assert!(report.candidates.is_empty(), "{:?}", describe(&report));
+    }
+
+    #[test]
+    fn a_token_found_under_exactly_one_ancestor_is_proposed_root_relative() {
+        let one = Fixture::new(&[
+            ("a/b/c/d.md", "See n/f.md and n/f.md#run.\n"),
+            ("a/b/n/f.md", ""),
+        ]);
+        assert_eq!(
+            describe(&one.coverage()),
+            vec![
+                row("a/b/c/d.md", "n/f.md", "propose @ref[a/b/n/f.md]"),
+                row("a/b/c/d.md", "n/f.md#run", "unresolvable"),
+            ]
+        );
+
+        let two = Fixture::new(&[
+            ("a/b/c/d.md", "See n/f.md.\n"),
+            ("a/b/n/f.md", ""),
+            ("a/n/f.md", ""),
+        ]);
+        assert_eq!(
+            describe(&two.coverage()),
+            vec![row("a/b/c/d.md", "n/f.md", "unresolvable")]
+        );
+    }
+
+    #[test]
+    fn an_unresolvable_token_with_a_unique_basename_names_where_it_is() {
+        let unique = Fixture::new(&[
+            ("docs/a.md", "See missing/guide.md.\n"),
+            ("elsewhere/deep/guide.md", ""),
+        ]);
+        let report = unique.coverage();
+        let CandidateKind::Unresolvable { reason } = &report.candidates[0].kind else {
+            panic!("{:?}", describe(&report));
+        };
+        assert!(
+            reason.ends_with("; one file named `guide.md` exists at `elsewhere/deep/guide.md`"),
+            "{reason}"
+        );
+
+        let shared = Fixture::new(&[
+            ("docs/a.md", "See missing/guide.md.\n"),
+            ("elsewhere/deep/guide.md", ""),
+            ("other/guide.md", ""),
+        ]);
+        let report = shared.coverage();
+        let CandidateKind::Unresolvable { reason } = &report.candidates[0].kind else {
+            panic!("{:?}", describe(&report));
+        };
+        assert!(!reason.contains("one file named"), "{reason}");
     }
 
     #[test]

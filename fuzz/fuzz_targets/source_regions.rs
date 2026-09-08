@@ -3,10 +3,15 @@
 use std::sync::LazyLock;
 use std::time::Duration;
 
+use anchr_core::root::FilePath;
 use anchr_core::text::{Container, FileAnalyzer, LanguageRegistry};
+use camino::Utf8PathBuf;
 use libfuzzer_sys::fuzz_target;
 
 const EXTENSIONS: &[&str] = &["rs", "ts", "tsx", "js", "py", "go"];
+
+static FILE: LazyLock<FilePath> =
+    LazyLock::new(|| FilePath::new(Utf8PathBuf::from("src/deep/fuzz.rs")).expect("valid path"));
 
 static REGISTRY: LazyLock<LanguageRegistry> =
     LazyLock::new(|| LanguageRegistry::new().expect("bundled grammars compile"));
@@ -22,7 +27,7 @@ fuzz_target!(|data: &[u8]| {
     let extension = EXTENSIONS[usize::from(*selector) % EXTENSIONS.len()];
     let spec = REGISTRY.for_extension(extension).expect("core bundle extension");
     let mut analyzer = FileAnalyzer::new(&REGISTRY, Duration::from_secs(5));
-    if let Ok(scan) = analyzer.scan(Container::Source(spec), text) {
+    if let Ok(scan) = analyzer.scan(Container::Source(spec), text, &FILE) {
         for marker in &scan.markers {
             assert!(text.get(marker.span.start..marker.span.end).is_some());
         }

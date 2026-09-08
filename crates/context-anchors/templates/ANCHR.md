@@ -21,7 +21,7 @@ an example without it being checked, put it in a code fence or inline code, or e
 `\@ref[...]` or `@ref\[...\]`.
 
 ## Targets
-<!-- @noref[src/, file.rs] -->
+<!-- @noref[src/, file.rs, docs/x.md, x.md] -->
 
 | Form | Meaning |
 |---|---|
@@ -33,8 +33,10 @@ an example without it being checked, put it in a code fence or inline code, or e
 
 Rules:
 
-- Paths are relative to the root (the directory holding `anchr.toml`, or the git root),
-  never to the file the reference is in. `..` is not allowed.
+- A bare path (`docs/x.md`) is relative to the root (the directory holding `anchr.toml`, or the
+  git root). A path starting with `./` or `../` is relative to the file the reference is written
+  in and may climb with `../`, but never above the root. `./` is required for a same-directory
+  file: `x.md` always means `<root>/x.md`.
 - Path lookups are exact: `src/Foo.ts` does not match `src/foo.ts`.
 - A file that git ignores, or that `[scan] exclude` removes, does not exist as a target even
   when it is on disk: the check must agree with a clean checkout. An empty directory does not

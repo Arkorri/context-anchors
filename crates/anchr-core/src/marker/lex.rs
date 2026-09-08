@@ -6,6 +6,7 @@ use super::{
     Alias, AnchorId, MalformedMarker, MalformedReason, Marker, MarkerKind, MarkerPayload,
     parse_noref_body, parse_target,
 };
+use crate::root::FilePath;
 use crate::span::ByteSpan;
 use crate::text::{TextRegion, TextRegions};
 
@@ -34,16 +35,23 @@ pub enum LexError {
 }
 
 /// Finds every marker inside the given regions of `source`. Bytes outside the regions are
-/// never examined, which is how code fences and non-comment code stay unchecked.
-pub fn lex(source: &str, regions: &TextRegions) -> Result<Lexed, LexError> {
+/// never examined, which is how code fences and non-comment code stay unchecked. `written_in`
+/// is the file being lexed; `./` and `../` targets are anchored to its directory here, so no
+/// marker ever carries a path that is not root-relative.
+pub fn lex(source: &str, regions: &TextRegions, written_in: &FilePath) -> Result<Lexed, LexError> {
     let mut lexed = Lexed::default();
     for region in regions.iter() {
-        lex_region(source, region, &mut lexed)?;
+        lex_region(source, region, written_in, &mut lexed)?;
     }
     Ok(lexed)
 }
 
-fn lex_region(source: &str, region: &TextRegion, lexed: &mut Lexed) -> Result<(), LexError> {
+fn lex_region(
+    source: &str,
+    region: &TextRegion,
+    written_in: &FilePath,
+    lexed: &mut Lexed,
+) -> Result<(), LexError> {
     let span = region.span;
     let text = source
         .get(span.start..span.end)
@@ -72,7 +80,7 @@ fn lex_region(source: &str, region: &TextRegion, lexed: &mut Lexed) -> Result<()
             }),
             Some(body) => {
                 let body_span = ByteSpan::from(body.range()).shifted_by(span.start);
-                match parse_body(kind, body.as_str(), body_span) {
+                match parse_body(kind, body.as_str(), body_span, written_in) {
                     Ok(payload) => lexed.markers.push(Marker {
                         payload,
                         span: whole,
@@ -106,6 +114,7 @@ fn parse_body(
     kind: MarkerKind,
     body: &str,
     body_span: ByteSpan,
+    written_in: &FilePath,
 ) -> Result<MarkerPayload, MalformedReason> {
     if body.is_empty() {
         return Err(MalformedReason::EmptyBody);
@@ -117,7 +126,7 @@ fn parse_body(
                 raw: body.to_owned(),
                 reason,
             }),
-        MarkerKind::Ref => parse_target(body)
+        MarkerKind::Ref => parse_target(body, Some(written_in))
             .map(|parsed| MarkerPayload::Ref {
                 target: parsed.target,
                 id_span: parsed
@@ -160,8 +169,45 @@ mod tests {
     use crate::marker::{RefTarget, TargetError};
     use crate::text::RegionKind;
 
+    fn file(path: &str) -> FilePath {
+        FilePath::new(camino::Utf8PathBuf::from(path)).unwrap()
+    }
+
     fn lex_all(source: &str) -> Lexed {
-        lex(source, &TextRegions::whole(source.len(), RegionKind::Whole)).unwrap()
+        lex_in(source, "a.md")
+    }
+
+    fn lex_in(source: &str, written_in: &str) -> Lexed {
+        lex(
+            source,
+            &TextRegions::whole(source.len(), RegionKind::Whole),
+            &file(written_in),
+        )
+        .unwrap()
+    }
+
+    #[test]
+    fn relative_targets_are_anchored_to_the_lexed_file() {
+        let source = "@ref[./x.md] @ref[../../x.md] @ref[../y.md#Name]";
+        let lexed = lex_in(source, "docs/a.md");
+        let paths: Vec<String> = lexed
+            .markers
+            .iter()
+            .filter_map(|marker| match &marker.payload {
+                MarkerPayload::Ref { target, .. } => target.path().map(ToString::to_string),
+                _ => None,
+            })
+            .collect();
+        assert_eq!(paths, vec!["docs/x.md", "y.md"]);
+        assert_eq!(lexed.malformed.len(), 1);
+        assert_eq!(slice(source, lexed.malformed[0].span), "@ref[../../x.md]");
+        assert!(matches!(
+            &lexed.malformed[0].reason,
+            MalformedReason::InvalidTarget {
+                raw,
+                reason: super::super::TargetError::Path(super::super::PathError::EscapesRoot)
+            } if raw == "../../x.md"
+        ));
     }
 
     fn slice(source: &str, span: ByteSpan) -> &str {
@@ -205,7 +251,7 @@ mod tests {
                 kind: RegionKind::Prose,
             },
         ]);
-        let lexed = lex(source, &regions).unwrap();
+        let lexed = lex(source, &regions, &file("a.md")).unwrap();
         let bodies: Vec<&str> = lexed
             .markers
             .iter()
@@ -445,7 +491,7 @@ mod tests {
             kind: RegionKind::Prose,
         }]);
         assert!(matches!(
-            lex(source, &regions),
+            lex(source, &regions, &file("a.md")),
             Err(LexError::RegionNotOnCharBoundary { .. })
         ));
     }

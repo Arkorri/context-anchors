@@ -1,0 +1,17 @@
+---
+source: crates/context-anchors/tests/cli.rs
+expression: stdout
+---
+error: malformed @ref: invalid target `../../x.md`: relative path leaves the root: more `../` than directories above this file
+ --> docs/a.md:1:1
+  |
+1 | @ref[../../x.md] @ref[claude:./x.md] @ref[./b.md]
+  | ^^^^^^^^^^^^^^^^
+
+error: malformed @ref: invalid target `claude:./x.md`: `claude:` cannot prefix a `./` or `../` path; a relative path is resolved from the file it is written in, which is always in the current root
+ --> docs/a.md:1:18
+  |
+1 | @ref[../../x.md] @ref[claude:./x.md] @ref[./b.md]
+  |                  ^^^^^^^^^^^^^^^^^^^
+
+checked 1 references in 2 files (0 anchors): 1 resolved, 2 errors, 0 unverified

@@ -250,7 +250,7 @@ fn visit_file(
         return skipped(SkipReason::NotUtf8);
     };
 
-    match analyzer.scan(container, &source) {
+    match analyzer.scan(container, &source, &path) {
         Err(error) => skipped(SkipReason::Analyze(error)),
         Ok(mut scan) => {
             if mode == ScanMode::AnchorsOnly {

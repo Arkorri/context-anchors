@@ -174,7 +174,8 @@ mod tests {
         let regions = analyzer(registry)
             .text_regions(crate::text::Container::Source(spec), source)
             .unwrap();
-        let lexed = lex(source, &regions).unwrap();
+        let file = crate::root::FilePath::new(format!("src/a.{extension}").into()).unwrap();
+        let lexed = lex(source, &regions, &file).unwrap();
         assert!(lexed.malformed.is_empty(), "{:?}", lexed.malformed);
         lexed
             .markers

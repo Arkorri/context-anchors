@@ -139,3 +139,32 @@ fn rename_refuses_unknown_or_colliding_ids() {
         .stderr(predicate::str::contains("not a valid anchor id"));
     assert_eq!(fixture.read("a.md"), "@anchor[a] @anchor[b]");
 }
+
+#[test]
+fn backrefs_rejects_a_file_relative_target() {
+    let fixture = Fixture::new(&[("a.md", "")]);
+    fixture
+        .anchr()
+        .args(["backrefs", "./x.md"])
+        .assert()
+        .code(2)
+        .stderr(predicate::str::contains("not a valid reference target"))
+        .stderr(predicate::str::contains("write the path root-relative"));
+}
+
+#[test]
+fn backrefs_finds_relative_and_root_relative_spellings_of_one_target() {
+    let fixture = Fixture::new(&[
+        ("docs/a.md", "@ref[./guide.md]\n"),
+        ("README.md", "@ref[docs/guide.md]\n"),
+        ("docs/guide.md", ""),
+    ]);
+    fixture
+        .anchr()
+        .args(["backrefs", "docs/guide.md", "--color", "never"])
+        .assert()
+        .code(0)
+        .stdout(predicate::str::contains("docs/a.md:1:1"))
+        .stdout(predicate::str::contains("README.md:1:1"))
+        .stdout(predicate::str::contains("2 references to `docs/guide.md`"));
+}

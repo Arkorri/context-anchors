@@ -67,13 +67,14 @@ and `@[...]`, find-references and rename on anchors and aliases, and anchors and
 declarations as document symbols.
 
 Targets a reference can name:
-<!-- @noref[src/file.ts] -->
+<!-- @noref[src/file.ts, ./sibling.md] -->
 
 | Form | Meaning |
 |---|---|
 | `src/dir/` | a directory exists |
 | `src/file.ts` | a file exists |
 | `src/file.ts#Name` | a declaration named `Name` exists in that file (Rust, TypeScript, JavaScript, Python, Go) |
+| `./sibling.md`, `../lib/x.ts#Name` | the same forms, resolved from the directory of the file the reference is in |
 | `#some-id` | an anchor with that id exists in this root |
 | `claude:#some-id` | an anchor exists in the external root named `claude` |
 

@@ -390,3 +390,39 @@ fn prose_word_pairs_are_not_reference_shaped() {
         assert!(json["summary"].get(key).is_some(), "{key}");
     }
 }
+
+#[test]
+fn file_relative_proposals_are_written_by_annotate_and_pass_check() {
+    let fixture = Fixture::new(&[
+        ("docs/README.md", "See guide.md and lost.md.\n"),
+        ("docs/guide.md", "# Guide\n"),
+        ("other/lost.md", ""),
+    ]);
+    fixture
+        .anchr()
+        .args(["coverage", "--color", "never"])
+        .assert()
+        .code(0)
+        .stdout(predicate::str::contains(
+            "`guide.md` — could be @ref[./guide.md]\n --> docs/README.md:1:5\n",
+        ))
+        .stdout(predicate::str::contains(
+            "`lost.md` — does not resolve: missing path `lost.md` in root `repo`; one file named `lost.md` exists at `other/lost.md`\n",
+        ));
+    fixture
+        .anchr()
+        .args(["annotate", "--write", "--color", "never"])
+        .assert()
+        .code(0)
+        .stdout(predicate::str::contains("annotated 1 reference"));
+    assert_eq!(
+        fixture.read("docs/README.md"),
+        "See @ref[./guide.md] and lost.md.\n"
+    );
+    fixture
+        .anchr()
+        .args(["check", "--color", "never"])
+        .assert()
+        .code(0)
+        .stdout(predicate::str::contains("1 resolved, 0 errors"));
+}

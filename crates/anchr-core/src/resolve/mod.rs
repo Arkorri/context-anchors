@@ -10,7 +10,7 @@ use camino::Utf8PathBuf;
 
 use crate::index::Index;
 use crate::marker::{AnchorId, PathExpectation, RefTarget, RelPath, SymbolName};
-use crate::root::{Root, RootName, RootSet, RootStatus};
+use crate::root::{FilePath, Root, RootName, RootSet, RootStatus};
 use crate::text::{FileAnalyzer, LanguageRegistry};
 
 pub use path::EntryKind;
@@ -270,6 +270,28 @@ impl<'a> Resolver<'a> {
         )
     }
 
+    /// When a missing bare path exists beside the file that wrote it, says so. Per site, never
+    /// per cause: the same name may be right next to one file and nowhere near another.
+    pub fn relative_note(&self, unresolved: &Unresolved, written_in: &FilePath) -> Option<String> {
+        let Unresolved::PathMissing { root, path } = unresolved else {
+            return None;
+        };
+        if root != self.roots.current_name() {
+            return None;
+        }
+        let (root, index) = self.present(root)?;
+        let dir = written_in.directory();
+        if dir.as_str().is_empty() {
+            return None;
+        }
+        let anchored = RelPath::parse(&format!("{dir}/{path}")).ok()?;
+        matches!(
+            self.paths.locate(root, index.tree(), &anchored),
+            path::Located::Found { .. }
+        )
+        .then(|| format!("in `{written_in}`, `./{path}` would resolve to `{anchored}`"))
+    }
+
     fn select_root(&self, name: &RootName) -> Result<(&'a Root, &'a Index), Resolution> {
         match self.roots.get(name) {
             Some(IndexedRoot::Present { root, index }) => Ok((root.as_ref(), index)),
@@ -458,7 +480,7 @@ mod tests {
 
         fn resolve(&self, target: &str) -> Resolution {
             let mut resolver = Resolver::new(&self.roots, &self.registry);
-            let target = parse_target(target).unwrap().target;
+            let target = parse_target(target, None).unwrap().target;
             resolver.resolve(self.roots.current_name(), &target)
         }
 
@@ -473,7 +495,7 @@ mod tests {
         /// resolution filled.
         fn suggestion(&self, target: &str) -> Option<String> {
             let mut resolver = Resolver::new(&self.roots, &self.registry);
-            let target = parse_target(target).unwrap().target;
+            let target = parse_target(target, None).unwrap().target;
             match resolver.resolve(self.roots.current_name(), &target) {
                 Resolution::Unresolved(unresolved) => resolver.suggest(&unresolved),
                 other => panic!("expected unresolved, got {other:?}"),
@@ -638,6 +660,26 @@ mod tests {
         );
         assert_eq!(w.suggestion("plugn:#x").as_deref(), Some("plugin"));
         assert_eq!(w.suggestion("#completely-different"), None);
+    }
+
+    #[test]
+    fn a_missing_bare_path_beside_its_file_gets_a_relative_note() {
+        let w = world();
+        let resolver = Resolver::new(&w.roots, &w.registry);
+        let missing = w.unresolved("guide.md");
+        let in_docs = FilePath::new(Utf8PathBuf::from("docs/a.md")).unwrap();
+        let in_src = FilePath::new(Utf8PathBuf::from("src/a.md")).unwrap();
+        let at_root = FilePath::new(Utf8PathBuf::from("a.md")).unwrap();
+        assert_eq!(
+            resolver.relative_note(&missing, &in_docs).as_deref(),
+            Some("in `docs/a.md`, `./guide.md` would resolve to `docs/guide.md`")
+        );
+        assert_eq!(resolver.relative_note(&missing, &in_src), None);
+        assert_eq!(resolver.relative_note(&missing, &at_root), None);
+        assert_eq!(
+            resolver.relative_note(&w.unresolved("#nope"), &in_docs),
+            None
+        );
     }
 
     #[test]

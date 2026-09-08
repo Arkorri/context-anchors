@@ -12,7 +12,7 @@ use crate::render;
 pub fn run(args: &BackrefsArgs) -> anyhow::Result<Outcome> {
     anstream::ColorChoice::from(args.color).write_global();
 
-    let target = parse_target(&args.target)
+    let target = parse_target(&args.target, None)
         .with_context(|| format!("`{}` is not a valid reference target", args.target))?
         .target;
     let cwd = current_dir()?;
