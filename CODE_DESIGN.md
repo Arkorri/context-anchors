@@ -17,7 +17,7 @@
 @ref[#cli/backrefs as Backrefs]
 @ref[#cli/rename as Rename]
 @ref[#cli/init as Init]
-@noref[foo.ts, report.json, docs/a.md]
+@noref[foo.ts, report.json, docs/a.md, .claude/, .claude/worktrees/, research/]
 
 **Companion to:** @ref[DESIGN.md] (what the tool is) and @ref[DISTRIBUTION.md] (how it ships); this
 document covers how the code is shaped. Where it deviates from those two, §12 says so.
@@ -156,7 +156,7 @@ ref         := target [ws "as" ws alias]          alias clause declares a file-l
 use         := "@[" alias "]"                     a use of a declared alias
 alias       := [A-Za-z_] [A-Za-z0-9_]*            max 64 bytes
 noref       := "@noref[" entry ("," ws* entry)* "]"   strings that are not references in this file
-entry       := 1..=256 bytes, no whitespace, none of  , [ ] @ `   (plain text, never a target)
+entry       := glob, 1..=256 bytes, no whitespace, neither @ nor `   (matched against tokens, never a target)
 target      := [root ":"] body
 body        := "#" anchor_id                      -> Anchor
              | rel_path "#" symbol_name           -> Symbol
@@ -320,21 +320,30 @@ Output per file: `FileScan { path, markers: Vec<Marker>, malformed: Vec<Malforme
 <!-- @anchor[code/scan] -->
 
 For a @ref[crates/anchr-core/src/root.rs#Root]: `ignore::WalkBuilder::new(root.dir)` with
-`.hidden(false)` plus a `filter_entry` that prunes any entry named `.git` at any depth,
-`.git_ignore(true)`, `.require_git(false)` (so `.gitignore` is honored in non-git roots),
-`.follow_links(false)`, `.add_custom_ignore_filename(".anchrignore")`, and an `OverrideBuilder`
-holding **only** `config.scan.exclude` as `!` globs. Hidden files are walked because
-`.claude/skills/**/SKILL.md` and `.github/workflows/*.yml` are exactly the documentation this
-tool checks; `.gitignore` and `[scan] exclude` are the knobs for dotdirs that should not be, the
-same way they are for everything else. `.git` is pruned rather than merely unscanned so its
-object and hook extensions never reach the coverage extension table (§12a item 15). A repository
-that keeps worktrees under `.claude/worktrees/` must exclude them, in `.git/info/exclude` or
-`[scan] exclude`, or every anchor id appears twice. `include` is *not* an
-override: `ignore` consults overrides before ignore files and returns on any override match, so a
-whitelist glob would silently un-ignore gitignored files (`CHANGELOG.md`, `*.generated.ts`). Instead
-`include` is compiled to a `globset::GlobSet` (`literal_separator(true)`) and applied as a
-post-filter in the visitor, after the walker has already applied `.gitignore`. A two-line
-integration test pins this: a gitignored `.md` file must not be scanned.
+`.hidden(false)`, `.git_ignore(true)`, `.git_global(true)`, `.git_exclude(true)`,
+`.require_git(true)`, `.ignore(false)`, `.follow_links(false)`, and one `filter_entry` that
+prunes any entry named `.git` at any depth and any entry `config.ignore.paths` matches.
+`require_git(true)` makes `.gitignore` behave exactly as git does: it applies only inside a
+repository, and parent `.gitignore` files stop at the nearest `.git`. The earlier
+`require_git(false)` read every `.gitignore` up to the filesystem root, so a copy of this
+repository under `~/.claude` lost @ref[docs/research/] to an unanchored `research/` line in
+`~/.claude/.gitignore` (§12a item 20). ripgrep `.ignore` files are off: the knobs are
+`.gitignore` and `[ignore] paths`, nothing else. `paths` is a
+@ref[crates/anchr-core/src/config.rs#IgnoreConfig] `Gitignore` built from the config lines and
+consulted with root-relative paths; because the filter runs after the walker's own gitignore
+pass, a `!` line there can never resurrect a gitignored file, which is what "layered on
+`.gitignore`" promises. Hidden files are walked because `.claude/skills/**/SKILL.md` and
+`.github/workflows/*.yml` are exactly the documentation this tool checks; `.gitignore` and
+`[ignore] paths` are the knobs for dotdirs that should not be, the same way they are for
+everything else. `.git` is pruned rather than merely unscanned so its object and hook extensions
+never reach the coverage extension table (§12a item 15). A repository that keeps worktrees under
+`.claude/worktrees/` must list them, in `.git/info/exclude` or `[ignore] paths`, or every anchor
+id appears twice. `include` is *not* a walker override: `ignore` consults overrides before
+ignore files and returns on any override match, so a whitelist glob would silently un-ignore
+gitignored files (`CHANGELOG.md`, `*.generated.ts`). Instead `include` is compiled to a
+`globset::GlobSet` (`literal_separator(true)`) and applied as a post-filter in the visitor, after
+the walker has already applied `.gitignore`. A two-line integration test pins this: a gitignored
+`.md` file must not be scanned.
 
 `build_parallel()` gives a thread per core with a per-thread visitor. Each visitor owns a
 @[FileAnalyzer] (§3.1) and a clone of an `mpsc::Sender<ScanOutcome>`. Every file and symlink
@@ -350,9 +359,8 @@ parallelism, and channel-to-single-reducer avoids a shared `Mutex<Vec>`. Paths c
 
 **The scan is the authority on what exists.** It is a pure function of the filesystem and the
 ignore rules, rerun on every invocation, and its tree is the only thing path resolution consults
-(§3.5). A file that git ignores, that `.anchrignore` lists, or that `[scan] exclude` prunes is on
-this machine and not in the repository, so it does not exist as a target and a clean checkout
-agrees with the local run.
+(§3.5). A file that git ignores or that `[ignore] paths` lists is on this machine and not in the
+repository, so it does not exist as a target and a clean checkout agrees with the local run.
 
 **External roots are scanned in `ScanMode::AnchorsOnly`.** Their refs and malformed markers are
 discarded: the user is checking *their* root, and an external root's own cross-root refs could
@@ -435,9 +443,9 @@ dir and index.
 
 - **Path**: a lookup in the root's scan tree (§3.3), never on the disk. A file exists when the
   walk enumerated it; a directory exists when the walk enumerated something beneath it, so an
-  empty directory or one whose every file is ignored does not. Gitignored, `.anchrignore`d, and
-  `[scan] exclude`d paths are therefore missing, and a missing path that is nevertheless on disk
-  gets a note naming the cause: the exclude pattern that pruned it, or the ignore rules. Keys are
+  empty directory or one whose every file is ignored does not. Gitignored paths and paths listed
+  in `[ignore] paths` are therefore missing, and a missing path that is nevertheless on disk
+  gets a note naming the cause: the `paths` line that pruned it, or `.gitignore`. Keys are
   the bytes the walker reported, so on a case-insensitive filesystem (macOS default)
   `@ref[src/Foo.ts]` still fails against `foo.ts` exactly as in Linux CI (invariant 5,
   @ref[#design/invariants]). A symlink entry is redirected lexically: substitute its link text
@@ -548,8 +556,11 @@ claude = "~/.claude"
 
 [scan]
 include = ["**/*.md", "**/*.txt", "**/*.{ts,tsx,js,jsx,py,rs,go}"]   # default shown
-exclude = []                # added to .gitignore semantics, never replaces them
 max-file-bytes = 2097152    # validated ≤ u32::MAX (line-index offsets are u32)
+
+[ignore]
+paths = []                  # gitignore syntax, layered on .gitignore; not scanned, not a target
+tokens = []                 # globs against coverage tokens; never proposed as references
 
 [containers]
 markdown  = ["md", "markdown"]
@@ -558,19 +569,15 @@ plaintext = ["txt"]
 
 [check]
 unverified = "report"       # or "error" (same as --strict)
-
-[coverage]
-exclude = []                # globs; files stay checked but coverage proposes nothing in them
-ignore = []                 # strings that are never references anywhere in this root
 ```
 
 The current root needs a @ref[crates/anchr-core/src/root.rs#RootName] for every
 @[Site]; `[root] name` provides it, defaulting to the directory's
 basename (validated; an invalid basename is a config error that names the fix).
 
-External roots load *their own* `anchr.toml` for `[scan]`/`[containers]` if one exists; otherwise
-defaults. Their `[roots]`, `[check]`, and `[coverage]` tables are ignored, and they are scanned
-anchors-only (§3.3). Root cycles are therefore impossible. Config is parsed defensively (schema,
+External roots load *their own* `anchr.toml` for `[scan]`, `[containers]`, and `[ignore] paths`
+if one exists; otherwise defaults. Their `[roots]`, `[check]`, and `[ignore] tokens` are ignored,
+and they are scanned anchors-only (§3.3). Root cycles are therefore impossible. Config is parsed defensively (schema,
 bounds, spans), but the *roots it declares are trusted*: a config pointing a root at `~` walks `~`.
 That is the user's choice, the same as running `rg` there.
 
@@ -639,7 +646,6 @@ Not used, deliberately: `rayon` (walker already parallel), `tree-sitter-tags` (w
 
 - `anchr-core`: every fallible fn returns `Result<T, SpecificError>` with `thiserror` enums per
   module (@ref[crates/anchr-core/src/config.rs#ConfigError],
-  @ref[crates/anchr-core/src/scan.rs#ScanError],
   @ref[crates/anchr-core/src/text/mod.rs#AnalyzeError]). No `unwrap`/`expect` in library code
   (`clippy::unwrap_used`, `clippy::expect_used` = deny at workspace level; tests are exempt via
   `#[cfg_attr(test, allow(...))]`).
@@ -865,7 +871,8 @@ them).
     every file touched).
 11. `anchr coverage` / `anchr annotate`: heuristic scanner over the same text regions, reporting
     reference-shaped strings that are not annotated; never errors, never writes on its own.
-    `@noref` and `[coverage] ignore` retire the candidates an author has judged (§12a item 14).
+    `@noref` and `[ignore] tokens` retire the candidates an author has judged (§12a items 14
+    and 20).
 
 **Milestone 3 — review ledger and ecosystem** (design pass required before code)
 12. `anchr review` / `anchr accept` signature ledger; exported vs. internal anchors; MCP adapter
@@ -964,11 +971,12 @@ Refinements the code made to the design above, recorded so the document stays th
     index block at the top is the first user.
 14. **@[Coverage] ignores.** Once the repository was annotated, most remaining coverage candidates
     were classified correctly and still were not references: example paths, files that exist in
-    a user's repository. `@noref[a, b/]` declares them per file and
-    `[coverage] ignore` / `exclude` per root; both share one exact matcher
+    a user's repository. `@noref[a, b/]` declares them per file and a root-wide list in
+    `anchr.toml` per root; both share one matcher
     (@ref[crates/anchr-core/src/noref.rs#NoRefSet]) and every entry that matches nothing is
     reported, the way an unused alias is. @[Check] lexes the marker and otherwise never sees it.
-    Design in @ref[docs/design/ignores.md].
+    Design in @ref[docs/design/ignores.md]. The config shape and the matcher's exact-plus-prefix
+    rule were superseded by item 20.
 15. **Extensions come from GitHub Linguist plus the root itself.** Dogfooding showed every
     unresolvable coverage row was a prose slash pair, so a `/`-token now needs a directory tail
     or a real extension. @ref[crates/anchr-core/src/coverage/linguist.rs] is Linguist's extension
@@ -1016,11 +1024,12 @@ Refinements the code made to the design above, recorded so the document stays th
     @[Check] would have passed locally and failed on a clean checkout, the exact split invariant
     5 forbids. The walk now records every file and symlink it yields in a
     @ref[crates/anchr-core/src/tree.rs#FileTree] carried by the @[Index], and path resolution is
-    a lookup in that tree (§3.5): gitignored, `.anchrignore`d, and `[scan] exclude`d paths are
-    missing, an empty directory is missing, and a missing path that is on disk gets a note naming
-    the exclude pattern or the ignore rules. The three knobs now mean three things: gitignore and
-    `[scan] exclude` remove a path from existence, indexing, and coverage; `[coverage] exclude`
-    only stops proposals. Exclude a tree only when nothing should reference into it. Symlinks are
+    a lookup in that tree (§3.5): gitignored and config-ignored paths are missing, an empty
+    directory is missing, and a missing path that is on disk gets a note naming the pattern or
+    the ignore rules. At the time this left three knobs meaning three things (gitignore and
+    `[scan] exclude` removed a path from existence, indexing, and coverage; `[coverage] exclude`
+    only stopped proposals); item 20 collapsed them to one, `[ignore] paths`, with the first
+    meaning. Ignore a tree only when nothing should reference into it. Symlinks are
     redirected lexically inside the root and fall back to the disk only when they leave it;
     `EntryKind::Other` is gone because a socket is simply not in the tree. The one deliberate
     LSP caveat: an editor buffer for a gitignored file counts as present for that session; the
@@ -1046,6 +1055,25 @@ Refinements the code made to the design above, recorded so the document stays th
     point at a sibling; the rest point up and across and stay root-relative. On the monorepo:
     proposals 201 → 594 (233 sites proposed as `./`, 148 under exactly one ancestor), and 1,983
     of the still-unresolvable sites now name the one file of that basename.
+20. **One `[ignore]` table.** Explaining the ignore surface after the monorepo run exposed five
+    knobs for two questions: `.anchrignore`, `[scan] exclude`, `[coverage] exclude`,
+    `[coverage] ignore`, and `@noref`, named after the phase that read them, with
+    `[scan] exclude` compiled twice under two syntaxes (globset for the "why is this missing"
+    note, gitignore for the walk) and a token rule nobody could see in the config: an entry
+    ending in `/` matched every token beneath it, so this repository's own `src/` entry hid
+    every `src/...` mention and `.claude/` would have hidden every skill. The config is now
+    `[ignore] paths` (gitignore syntax, layered on `.gitignore`, one `Gitignore` matcher shared
+    by the walker's `filter_entry` and the resolver's note) and `[ignore] tokens` (the same
+    literal globs `@noref` takes: `src/` is only `src/`, `src/**` is the subtree, `**/x` is any
+    depth). `.anchrignore` is gone, and so is "checked but never proposed": a file is looked at
+    or it is not, and the archived research that relied on it is annotated and `@noref`ed
+    instead (16 proposals, 11 non-references). Full globset is accepted everywhere; a marker
+    body simply cannot spell `[`, `]`, or a bare comma. In the same change `.gitignore` handling
+    became git's own (`require_git(true)`): honoured only inside a repository, parent files
+    stopping at the nearest `.git`, after a copy of this repository under `~/.claude` lost
+    @ref[docs/research/] to an unanchored `research/` line in `~/.claude/.gitignore`; ripgrep
+    `.ignore` files stopped being read. Design and the superseded reasoning in
+    @ref[docs/design/ignores.md] §8.
 
 ## 13. Research appendix
 

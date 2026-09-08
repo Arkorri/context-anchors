@@ -264,7 +264,6 @@ mod tests {
     use super::*;
     use crate::config::Config;
     use crate::root::RootName;
-    #[cfg(unix)]
     use crate::tree::Lookup;
 
     struct Fixture {

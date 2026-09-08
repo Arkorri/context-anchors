@@ -1,6 +1,7 @@
 # Review of `ignore-question-4-assume-soft-widget.md` (code-level design, v1)
+<!-- @noref[foo.ts, ignore-question-4-assume-soft-widget.md] -->
 
-Reviewed against: `DESIGN.md`, `DISTRIBUTION.md`, the crate survey, and the corgea security digest. Findings are ordered most severe first.
+Reviewed against: @ref[DESIGN.md], @ref[DISTRIBUTION.md], the crate survey, and the corgea security digest. Findings are ordered most severe first.
 
 ## Findings
 
@@ -77,7 +78,7 @@ Add: CRLF files and `\r` inside a body; multi-byte text before a marker (offset 
 
 **19. Should-fix. §5 `init`. Under-specified for a command that writes files.**
 It writes `anchr.toml`, instructions, and hook config. Hook config for Claude Code means merging into `.claude/settings.json`, a JSON document with existing content. No overwrite policy, no dry run, no idempotency rule.
-Fix: never overwrite an existing file without `--force`; settings merge via `serde_json::Value` read-modify-write that preserves unknown keys; print every path written; `--dry-run`. Or defer hook writing to printing instructions, which is what `DISTRIBUTION.md` §5 implies for non-Claude vendors anyway.
+Fix: never overwrite an existing file without `--force`; settings merge via `serde_json::Value` read-modify-write that preserves unknown keys; print every path written; `--dry-run`. Or defer hook writing to printing instructions, which is what @ref[DISTRIBUTION.md] §5 implies for non-Claude vendors anyway.
 
 **20. Nit. §3.5 / §6 / §8. `DashMap` and the parallelism story contradict each other.**
 §3.3 says the post-walk phase is single-threaded; §8 says the symbol cache is the only shared mutable state, implying parallel resolution. Single-threaded resolution needs a `HashMap`.

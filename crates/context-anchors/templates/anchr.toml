@@ -11,11 +11,20 @@
 
 # [scan]
 # include = []                 # empty: every file with a known container is scanned
-# exclude = []                 # gitignore-style globs, applied on top of .gitignore; hidden
-#                              # directories such as .claude/ are scanned (.git/ never is), so
-#                              # list the ones to skip here, e.g. [".venv/**"]
 # max-file-bytes = 2097152     # larger files are reported as unverified, not scanned
 # parse-budget-ms = 5000       # per-file tree-sitter parse budget
+
+# Two questions. `paths`: which files anchr never looks at. `tokens`: which strings it never
+# proposes as references.
+# [ignore]
+# paths = []                   # gitignore syntax, layered on .gitignore, which applies as git
+#                              # applies it (inside a repository, stopping at the nearest .git).
+#                              # A listed path is not scanned, not checked, and not a valid
+#                              # target. Hidden directories such as .claude/ are scanned and
+#                              # .git/ never is, so list the ones to skip here, e.g. [".venv/"]
+# tokens = []                  # globs matched against the whole string: "CLAUDE.md" is only
+#                              # that word, "src/**" is everything under src/, "**/CLAUDE.md"
+#                              # is the word at any depth. Never a prefix unless you write one.
 
 # [containers]
 # markdown = ["md", "markdown"]
@@ -24,7 +33,3 @@
 
 # [check]
 # unverified = "report"        # "error" makes every unverified finding fail the check
-
-# [coverage]
-# exclude = []                 # globs; still checked, but coverage proposes nothing in them
-# ignore = []                  # strings that are never references anywhere, e.g. ["CLAUDE.md"]

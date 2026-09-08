@@ -109,8 +109,8 @@ fn whitelist_override_bypasses_gitignore_so_include_must_be_a_post_filter() {
 
 /// `[ignore] paths` is a `Gitignore` built from config lines and consulted with root-relative
 /// paths. Pins: the matched glob reports its original text, a `!` line whitelists, an
-/// unanchored directory line matches at any depth, and `dir/**` does not match `dir` itself
-/// (the config's `path_pattern` retries with a trailing slash for that case).
+/// unanchored directory line matches at any depth, and a `**` tail does not match the directory
+/// itself (the config's `path_pattern` retries with a trailing slash for that case).
 #[test]
 fn a_gitignore_matcher_built_from_config_lines_names_the_original_pattern() {
     let mut builder = GitignoreBuilder::new("/root");

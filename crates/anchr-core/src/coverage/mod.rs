@@ -732,7 +732,8 @@ mod tests {
 
     #[test]
     fn noref_lists_suppress_every_token_shape_in_their_file_only() {
-        // `src/**` in a.md claims the subtree; the bare `src/` in b.md claims only that token.
+        // `src/**` in the first file claims the subtree; the bare `src/` in the second claims
+        // only that token.
         let fixture = Fixture::new(&[
             (
                 "docs/a.md",

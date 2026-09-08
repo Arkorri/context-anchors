@@ -16,12 +16,13 @@ that still uses the old name.
 
 Markers are recognised in Markdown prose (not inside code fences or inline code), in source
 code comments (not inside backtick spans), and anywhere in `.txt` files, in hidden directories
-such as `.claude/` like anywhere else. Files that git ignores are never scanned. To show a marker as
-an example without it being checked, put it in a code fence or inline code, or escape it:
+such as `.claude/` like anywhere else. Files that git ignores, or that `[ignore] paths` in
+`anchr.toml` lists, are never scanned. To show a marker as an example without it being checked,
+put it in a code fence or inline code, or escape it:
 `\@ref[...]` or `@ref\[...\]`.
 
 ## Targets
-<!-- @noref[src/, file.rs, docs/x.md, x.md] -->
+<!-- @noref[src/**, file.rs, docs/x.md, x.md, .claude/] -->
 
 | Form | Meaning |
 |---|---|
@@ -38,9 +39,9 @@ Rules:
   in and may climb with `../`, but never above the root. `./` is required for a same-directory
   file: `x.md` always means `<root>/x.md`.
 - Path lookups are exact: `src/Foo.ts` does not match `src/foo.ts`.
-- A file that git ignores, or that `[scan] exclude` removes, does not exist as a target even
-  when it is on disk: the check must agree with a clean checkout. An empty directory does not
-  exist either.
+- A file that git ignores, or that `[ignore] paths` lists, does not exist as a target even when
+  it is on disk: the check must agree with a clean checkout. An empty directory does not exist
+  either.
 - Anchor ids use letters, digits, `_`, `.`, `-`, and `/` for namespacing: `auth/token-refresh`.
   An id must be unique within its root.
 - Symbol names are unqualified: write `file.rs#method`, not `file.rs#Type::method`.
@@ -86,10 +87,11 @@ say so once and the report stops asking:
 - A backticked code symbol on its own is never a candidate: a name has no single referent.
   Declare `@ref[src/file.ts#Name as Name]` once and every `Name` in the file is proposed.
 - `@noref` is file-scoped, like an alias. For strings that are never references anywhere, use
-  `ignore` under `[coverage]` in `anchr.toml`; `exclude` there keeps whole files checked but never
-  proposes annotations in them.
-- Entries are plain strings separated by commas: exact match, or the path of a `path#Name`
-  token, or a prefix when the entry ends in `/`. No globs.
+  `tokens` under `[ignore]` in `anchr.toml`. Files that should not be looked at at all go in
+  `paths` there, in gitignore syntax; they are then neither scanned nor valid targets.
+- Entries are globs separated by commas, matched against the whole string (or the path of a
+  `path#Name` token): `src/` is only the word `src/`, `src/**` is everything under it,
+  `**/CLAUDE.md` is that name at any depth. Nothing is a prefix unless you write `**`.
 - An entry that matches nothing shows up in `anchr coverage`, like an unused alias. `anchr check`
   never reports on ignores.
 

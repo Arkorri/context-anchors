@@ -1,4 +1,5 @@
 # Rust crate landscape for `anchr` / `context-anchors` (verified 2026-09-04)
+<!-- @noref[parser.c, docs.rs, .anchr/cache.json, comments.scm, main.rs] -->
 
 All versions below were checked against the crates.io API on 2026-09-04 unless marked **[unverified]**.
 

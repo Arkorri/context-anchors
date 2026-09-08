@@ -1,4 +1,5 @@
 # Digest: corgea.com/learn/rust-security-best-practices
+<!-- @noref[tests/] -->
 
 Source: https://corgea.com/learn/rust-security-best-practices
 Page title: "Rust Best Practices 2026: Security, Idioms & Error Handling"
@@ -75,7 +76,7 @@ Everything below is from the site unless explicitly marked **[not from site]**. 
 
 **Format and lint on every change**
 - Run `cargo fmt --all -- --check` and `cargo clippy --all-targets --all-features -- -D warnings` in CI.
-- Declare lints in the `[lints]` table in `Cargo.toml`, not on the command line. Suggested config:
+- Declare lints in the `[lints]` table in @ref[Cargo.toml], not on the command line. Suggested config:
   ```toml
   [lints.rust]
   unsafe_code = "forbid"
@@ -91,7 +92,7 @@ Everything below is from the site unless explicitly marked **[not from site]**. 
 - In workspaces, define once under `[workspace.lints]` and opt each crate in with `lints.workspace = true`.
 
 **Pin a minimum supported Rust version**
-- Set `rust-version` in `Cargo.toml`; use `resolver = "3"` (default in 2024 edition) for MSRV-aware resolution; test against both MSRV and current stable in CI.
+- Set `rust-version` in @ref[Cargo.toml]; use `resolver = "3"` (default in 2024 edition) for MSRV-aware resolution; test against both MSRV and current stable in CI.
   ```toml
   [package]
   rust-version = "1.85"
@@ -99,12 +100,12 @@ Everything below is from the site unless explicitly marked **[not from site]**. 
   ```
 
 **Audit dependencies with cargo-audit and cargo-deny**
-- `cargo audit` checks `Cargo.lock` against the RustSec advisory database.
-- `cargo deny` with a `deny.toml` enforces policy on advisories, licenses, duplicate versions, and crate sources. Run both in CI.
-- Commit `Cargo.lock` for binaries; build with `cargo build --locked`.
+- `cargo audit` checks @ref[Cargo.lock] against the RustSec advisory database.
+- `cargo deny` with a @ref[deny.toml] enforces policy on advisories, licenses, duplicate versions, and crate sources. Run both in CI.
+- Commit @ref[Cargo.lock] for binaries; build with `cargo build --locked`.
 - For higher assurance, `cargo vet` records human review of each crate version.
 - Install: `cargo install cargo-audit cargo-deny --locked`
-- Suggested `deny.toml`:
+- Suggested @ref[deny.toml]:
   ```toml
   [advisories]
   yanked = "deny"
@@ -368,7 +369,7 @@ Everything below is from the site unless explicitly marked **[not from site]**. 
 - "`build.rs` and proc macros run at compile time ... A malicious `build.rs` owns your developer laptop and your CI runner before you ship anything. This is why `cargo vet` and reviewing new dependencies matter even for 'just a dev dependency.'"
 - Typosquats: "Check the crate name, download count, repository link, and maintainer before adding anything."
 - "Prefer well-maintained crates with few transitive dependencies. `cargo tree` shows what you are really pulling in."
-- "Commit `Cargo.lock`, build with `--locked`, and consider `cargo auditable` to embed the dependency list in the binary so you can answer 'is this deployed artifact affected?' later."
+- "Commit @ref[Cargo.lock], build with `--locked`, and consider `cargo auditable` to embed the dependency list in the binary so you can answer 'is this deployed artifact affected?' later."
 - Tools: `cargo audit`, `cargo deny`, `cargo vet`, `cargo tree`, `cargo geiger`, `cargo auditable`.
 
 **Secrets and sensitive data**
@@ -519,7 +520,7 @@ overflow-checks = true # from the security section; the cost is small
 - **Is Rust secure by default?** "Rust is memory-safe by default, which removes buffer overflows, use-after-free, and data races from safe code. It is not secure by default in the application sense: nothing in the language prevents injection, path traversal, broken authorization, silent integer wraparound in release builds, resource exhaustion, secret leakage, or a vulnerable dependency."
 - **Should I use unwrap in Rust?** Not in library code or on paths processing external input; it turns recoverable errors into panics, a DoS vector in services. Use `?` to propagate and `expect("reason")` only for invariants proven impossible to violate. `clippy::unwrap_used` enforces it.
 - **anyhow vs thiserror?** "Use `thiserror` for libraries, where callers need typed error variants they can match on. Use `anyhow` for applications, where you want to add context and report once at the top." Most projects use both, converting library errors to `anyhow::Error` at the binary boundary.
-- **How do I audit Rust dependencies?** "`cargo audit` checks `Cargo.lock` against the RustSec advisory database. `cargo deny` enforces a policy for advisories, licenses, duplicate versions, and allowed sources." Commit `Cargo.lock`, build `--locked`, use `cargo vet` when human review needs recording.
+- **How do I audit Rust dependencies?** "`cargo audit` checks @ref[Cargo.lock] against the RustSec advisory database. `cargo deny` enforces a policy for advisories, licenses, duplicate versions, and allowed sources." Commit @ref[Cargo.lock], build `--locked`, use `cargo vet` when human review needs recording.
 - **How do I write safe unsafe Rust?** "Make each `unsafe` block as small as possible, write a `// SAFETY:` comment naming the invariant that makes it sound, and wrap it in a safe function whose signature makes the invariant impossible to violate."
 
 **Related reading:** three Corgea marketing articles (AI Code Security 2026; 10 Best AI Code Security Tools 2026; AI SAST guide).
@@ -531,8 +532,8 @@ overflow-checks = true # from the security section; the cost is small
 Reproduced as returned by WebFetch; wording is faithful to the page.
 
 1. Run `cargo fmt --check` and `cargo clippy -- -D warnings` in CI, with lints declared in `[lints]`.
-2. Set `rust-version` in `Cargo.toml` and test against the MSRV.
-3. Run `cargo audit` and `cargo deny check` on every build; commit `Cargo.lock` and build with `--locked`.
+2. Set `rust-version` in @ref[Cargo.toml] and test against the MSRV.
+3. Run `cargo audit` and `cargo deny check` on every build; commit @ref[Cargo.lock] and build with `--locked`.
 4. Accept `&str`, `&[T]`, and `&Path` in signatures; take ownership only when you need it.
 5. Treat every `clone()` as a design decision; use `Cow` when ownership is conditional.
 6. Return `Result` and propagate with `?`; `thiserror` in libraries, `anyhow` in binaries.
@@ -624,8 +625,8 @@ For anything parsed into an identifier, anchor slug, or filename, validate with 
 Tree-sitter grammar crates compile C via `build.rs`; the site's warning is pointed: "A malicious `build.rs` owns your developer laptop and your CI runner before you ship anything."
 - Vet each grammar crate (name, downloads, repo, maintainer) before adding it.
 - `cargo tree` to see the transitive weight.
-- Commit `Cargo.lock`; `cargo build --locked`.
-- `cargo audit` and `cargo deny check` in CI with the site's `deny.toml`; `unknown-git = "deny"` matters because grammar crates are often pulled from git.
+- Commit @ref[Cargo.lock]; `cargo build --locked`.
+- `cargo audit` and `cargo deny check` in CI with the site's @ref[deny.toml]; `unknown-git = "deny"` matters because grammar crates are often pulled from git.
 - Consider `cargo vet` and `cargo auditable` for a distributed binary.
 
 ### Secrets (checklist 18)
