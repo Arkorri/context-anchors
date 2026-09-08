@@ -241,3 +241,64 @@ fn completions_are_generated_for_a_shell() {
         .code(0)
         .stdout(predicate::str::contains("anchr"));
 }
+
+#[test]
+fn a_gitignored_target_is_missing_and_the_note_says_why() {
+    let fixture = Fixture::new(&[
+        (".gitignore", "build/\n"),
+        ("build/out.md", "# generated\n"),
+        ("docs/a.md", "See @ref[build/out.md] and @ref[build/].\n"),
+    ]);
+    let (code, json) = fixture.check_json(&[]);
+    assert_eq!(code, 1);
+    let diagnostics = json["diagnostics"].as_array().unwrap();
+    let note_for = |target: &str| -> String {
+        let diagnostic = diagnostics
+            .iter()
+            .find(|d| d["message"].as_str().unwrap().contains(target))
+            .unwrap_or_else(|| panic!("no diagnostic for {target}: {diagnostics:?}"));
+        diagnostic["notes"][0].as_str().unwrap().to_owned()
+    };
+    assert_eq!(
+        note_for("`build/out.md`"),
+        "`build/out.md` exists on disk, but is ignored by `.gitignore` or `.anchrignore` rules, so the scan never sees it; ignored files cannot be referenced"
+    );
+    assert_eq!(
+        note_for("`build`"),
+        "`build` exists on disk, but the scan found no files beneath it (empty, or everything in it is ignored); such directories cannot be referenced"
+    );
+}
+
+#[test]
+fn an_excluded_target_is_missing_and_the_note_names_the_pattern() {
+    let fixture = Fixture::new(&[
+        ("anchr.toml", "[scan]\nexclude = [\"vendor/**\"]\n"),
+        ("vendor/lib.md", "# vendored\n"),
+        ("docs/a.md", "See @ref[vendor/lib.md].\n"),
+    ]);
+    let (code, json) = fixture.check_json(&[]);
+    assert_eq!(code, 1);
+    let note = json["diagnostics"][0]["notes"][0].as_str().unwrap();
+    assert_eq!(
+        note,
+        "`vendor/lib.md` exists on disk, but `[scan] exclude` pattern `vendor/**` keeps it out of the scan; excluded paths cannot be referenced"
+    );
+}
+
+#[test]
+fn hidden_and_container_less_targets_resolve_when_the_scan_walked_them() {
+    let fixture = Fixture::new(&[
+        (".github/workflows/ci.yml", "name: ci\n"),
+        ("Cargo.lock", ""),
+        (
+            "docs/a.md",
+            "See @ref[.github/workflows/ci.yml], @ref[.github/], and @ref[Cargo.lock].\n",
+        ),
+    ]);
+    fixture
+        .anchr()
+        .args(["check", "--color", "never"])
+        .assert()
+        .code(0)
+        .stdout(predicate::str::contains("3 resolved, 0 errors"));
+}

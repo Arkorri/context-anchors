@@ -9,6 +9,7 @@ use crate::root::{FilePath, RootName};
 use crate::scan::ScannedFile;
 use crate::span::{ByteSpan, LineIndex};
 use crate::text::{FileScan, RegionKind};
+use crate::tree::FileTree;
 
 /// Where a marker sits: which root, which file, which bytes.
 #[derive(Debug, Clone, PartialEq, Eq, Hash, PartialOrd, Ord)]
@@ -129,12 +130,14 @@ pub struct AnchorSite<'a> {
 }
 
 /// `files` is the single owner of marker data; `anchors_by_id` is re-derived for a file on
-/// every update so the two cannot drift.
+/// every update so the two cannot drift. `tree` is every path the scan enumerated, markers or
+/// not: the scan is the authority on what exists, and the tree is its result.
 #[derive(Debug, Clone)]
 pub struct Index {
     root: RootName,
     files: HashMap<FilePath, FileRecord>,
     anchors_by_id: HashMap<AnchorId, Vec<Site>>,
+    tree: FileTree,
 }
 
 impl Index {
@@ -143,11 +146,13 @@ impl Index {
             root,
             files: HashMap::new(),
             anchors_by_id: HashMap::new(),
+            tree: FileTree::default(),
         }
     }
 
-    pub fn from_scan(root: RootName, files: Vec<ScannedFile>) -> Self {
+    pub fn from_scan(root: RootName, files: Vec<ScannedFile>, tree: FileTree) -> Self {
         let mut index = Self::new(root);
+        index.tree = tree;
         for file in files {
             index.update_file(file.path, file.scan);
         }
@@ -158,8 +163,22 @@ impl Index {
         &self.root
     }
 
+    pub fn tree(&self) -> &FileTree {
+        &self.tree
+    }
+
+    /// A file that exists but is not lexed: an editor buffer with no container.
+    pub fn mark_present(&mut self, path: &FilePath) {
+        self.tree.insert(path, crate::tree::Entry::File);
+    }
+
+    pub fn mark_absent(&mut self, path: &FilePath) {
+        self.tree.remove(path);
+    }
+
     pub fn update_file(&mut self, path: FilePath, scan: FileScan) {
         self.remove_file(&path);
+        self.tree.insert(&path, crate::tree::Entry::File);
         for marker in &scan.markers {
             if let MarkerPayload::Anchor { id } = &marker.payload {
                 self.anchors_by_id.entry(id.clone()).or_default().push(site(

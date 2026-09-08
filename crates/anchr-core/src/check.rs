@@ -84,20 +84,27 @@ impl Workspace {
                 root: root.name.clone(),
                 source,
             })?;
+            let crate::scan::ScanOutput {
+                files,
+                skipped,
+                problems,
+                extensions,
+                tree,
+            } = output;
             if is_current {
-                current_files_scanned = output.files.len();
+                current_files_scanned = files.len();
             }
             findings.insert(
                 root.name.clone(),
                 ScanFindings {
-                    skipped: output.skipped,
-                    problems: output.problems,
-                    extensions: output.extensions,
+                    skipped,
+                    problems,
+                    extensions,
                 },
             );
             indexes.insert(
                 root.name.clone(),
-                Index::from_scan(root.name.clone(), output.files),
+                Index::from_scan(root.name.clone(), files, tree),
             );
         }
 
@@ -122,6 +129,7 @@ impl Workspace {
         let Some(container) =
             Container::for_path(path.as_path(), &root.config.containers, &self.registry)
         else {
+            index.mark_present(&path);
             index.remove_file(&path);
             return Ok(false);
         };
@@ -137,7 +145,9 @@ impl Workspace {
         match std::fs::read_to_string(root.dir.join(path.as_path())) {
             Ok(text) => self.update_file(path, &text),
             Err(_) => {
-                self.roots.current_mut().1.remove_file(&path);
+                let (_, index) = self.roots.current_mut();
+                index.remove_file(&path);
+                index.mark_absent(&path);
                 Ok(false)
             }
         }
@@ -189,8 +199,12 @@ pub fn check(workspace: &Workspace, options: &CheckOptions) -> Result<Report, Ch
             }
             Resolution::Unresolved(unresolved) => {
                 let suggestion = resolver.suggest(&unresolved);
+                let explanation = resolver.explain(&unresolved);
                 let kind = DiagnosticKind::Unresolved(unresolved);
                 builder.suggestion(&kind, suggestion);
+                if let Some(note) = explanation {
+                    builder.note(&kind, note);
+                }
                 kind
             }
             Resolution::Unverified(unverified) => DiagnosticKind::Unverified(unverified),

@@ -31,9 +31,28 @@ pub struct ScanConfig {
     /// `None` scans every file with a known container; `Some` additionally requires a match.
     pub include: Option<GlobSet>,
     pub include_patterns: Vec<String>,
+    /// The walker prunes by these; `exclude_matching` names the one that removed a path.
+    pub exclude: GlobSet,
     pub exclude_patterns: Vec<String>,
     pub max_file_bytes: u64,
     pub parse_budget: Duration,
+}
+
+impl ScanConfig {
+    // @noref[target/]
+    /// The first `[scan] exclude` pattern matching `path`. A directory also matches patterns
+    /// written for its contents: `target/**` compiles to `target/.*`, which matches `target/`
+    /// but not `target`.
+    pub fn exclude_matching(&self, path: &Utf8Path, is_dir: bool) -> Option<&str> {
+        let mut matched = self.exclude.matches(path);
+        if matched.is_empty() && is_dir {
+            matched = self.exclude.matches(format!("{path}/"));
+        }
+        matched
+            .first()
+            .and_then(|&position| self.exclude_patterns.get(position))
+            .map(String::as_str)
+    }
 }
 
 impl Default for ScanConfig {
@@ -41,6 +60,7 @@ impl Default for ScanConfig {
         Self {
             include: None,
             include_patterns: Vec::new(),
+            exclude: GlobSet::empty(),
             exclude_patterns: Vec::new(),
             max_file_bytes: DEFAULT_MAX_FILE_BYTES,
             parse_budget: DEFAULT_PARSE_BUDGET,
@@ -244,7 +264,7 @@ impl Validator<'_> {
             .map(|patterns| self.glob_set("scan.include", patterns))
             .transpose()?;
         let exclude_patterns = self.strings("scan.exclude", &raw.scan.exclude)?;
-        self.glob_set("scan.exclude", &exclude_patterns)?;
+        let exclude = self.glob_set("scan.exclude", &exclude_patterns)?;
 
         let max_file_bytes = match raw.scan.max_file_bytes {
             None => DEFAULT_MAX_FILE_BYTES,
@@ -297,6 +317,7 @@ impl Validator<'_> {
             scan: ScanConfig {
                 include,
                 include_patterns: include_patterns.unwrap_or_default(),
+                exclude,
                 exclude_patterns,
                 max_file_bytes,
                 parse_budget,
@@ -596,6 +617,28 @@ mod tests {
         let home = home_dir().unwrap();
         assert_eq!(expand_home("~").unwrap(), home);
         assert_eq!(expand_home("~/.claude").unwrap(), home.join(".claude"));
+    }
+
+    #[test]
+    fn exclude_matching_names_the_pattern_that_removed_a_path() {
+        let config = parse("[scan]\nexclude = [\"target/**\", \"**/snapshots/**\"]\n").unwrap();
+        let scan = &config.scan;
+        let matching =
+            |path: &str, is_dir: bool| scan.exclude_matching(Utf8Path::new(path), is_dir);
+        assert_eq!(matching("target/debug/x.md", false), Some("target/**"));
+        assert_eq!(matching("target", true), Some("target/**"));
+        assert_eq!(matching("target", false), None);
+        assert_eq!(
+            matching("a/snapshots/b.snap", false),
+            Some("**/snapshots/**")
+        );
+        assert_eq!(matching("src/a.md", false), None);
+        assert_eq!(
+            Config::default()
+                .scan
+                .exclude_matching(Utf8Path::new("target/x"), false),
+            None
+        );
     }
 
     #[test]

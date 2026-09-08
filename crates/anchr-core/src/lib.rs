@@ -20,3 +20,4 @@ pub mod scan;
 pub mod span;
 pub mod suggest;
 pub mod text;
+pub mod tree;

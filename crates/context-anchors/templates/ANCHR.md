@@ -36,6 +36,9 @@ Rules:
 - Paths are relative to the root (the directory holding `anchr.toml`, or the git root),
   never to the file the reference is in. `..` is not allowed.
 - Path lookups are exact: `src/Foo.ts` does not match `src/foo.ts`.
+- A file that git ignores, or that `[scan] exclude` removes, does not exist as a target even
+  when it is on disk: the check must agree with a clean checkout. An empty directory does not
+  exist either.
 - Anchor ids use letters, digits, `_`, `.`, `-`, and `/` for namespacing: `auth/token-refresh`.
   An id must be unique within its root.
 - Symbol names are unqualified: write `file.rs#method`, not `file.rs#Type::method`.
