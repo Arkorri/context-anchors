@@ -75,8 +75,11 @@ enum Outcome {
 }
 
 /// Respects `.gitignore` (with or without a `.git` directory), `.ignore`, and `.anchrignore`;
-/// never follows symlinks. Excludes are walker overrides; includes are a post-filter, because
-/// an include override would silently un-ignore gitignored files.
+/// never follows symlinks. Hidden files are walked like any other (`.claude/skills` is exactly
+/// the documentation this tool exists for); `.git` is always pruned because its internals are
+/// never documentation and their extensions would pollute the coverage extension table.
+/// Excludes are walker overrides; includes are a post-filter, because an include override would
+/// silently un-ignore gitignored files.
 pub fn scan_root(
     root: &Root,
     registry: &LanguageRegistry,
@@ -92,7 +95,8 @@ pub fn scan_root(
 
     let mut builder = WalkBuilder::new(root.dir.as_std_path());
     builder
-        .hidden(true)
+        .hidden(false)
+        .filter_entry(|entry| entry.file_name() != ".git")
         .git_ignore(true)
         .git_global(true)
         .git_exclude(true)
@@ -346,6 +350,39 @@ mod tests {
                 .collect()
         );
         assert!(fixture.scan(ScanMode::AnchorsOnly).extensions.is_empty());
+    }
+
+    #[test]
+    fn hidden_files_are_scanned_and_git_internals_are_not() {
+        let fixture = Fixture::new(&[
+            (".claude/skills/x/SKILL.md", "@anchor[skill]"),
+            (".github/workflows/ci.yml", ""),
+            (".git/COMMIT_EDITMSG", "@anchor[leak]"),
+            (".git/hooks/pre-commit.sample", ""),
+            ("kept.md", ""),
+        ]);
+        let output = fixture.scan(ScanMode::Full);
+        assert_eq!(
+            paths(&output.files),
+            vec![".claude/skills/x/SKILL.md", "kept.md"]
+        );
+        assert_eq!(
+            output.extensions,
+            ["md", "yml"].map(str::to_owned).into_iter().collect()
+        );
+        let total: usize = output.files.iter().map(|f| f.scan.markers.len()).sum();
+        assert_eq!(total, 1);
+    }
+
+    #[test]
+    fn gitignored_dotfiles_are_still_skipped() {
+        let fixture = Fixture::new(&[
+            (".gitignore", ".cache/\n.secret.md\n"),
+            (".cache/notes.md", ""),
+            (".secret.md", ""),
+            ("kept.md", ""),
+        ]);
+        assert_eq!(paths(&fixture.scan(ScanMode::Full).files), vec!["kept.md"]);
     }
 
     #[test]
