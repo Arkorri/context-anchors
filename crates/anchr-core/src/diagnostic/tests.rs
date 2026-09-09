@@ -155,3 +155,199 @@ fn every_kind_has_a_human_title() {
     assert_eq!(undeclared.base_severity(), Severity::Error);
     assert!(undeclared.hint().unwrap().contains("as Analyser]"));
 }
+
+/// Every kind, so a new variant fails to compile here until its wording is decided.
+fn every_kind() -> Vec<DiagnosticKind> {
+    use crate::marker::{Alias, AnchorId, MalformedReason, MarkerKind, RelPath, SymbolName};
+    use crate::scan::SkipReason;
+
+    let rel = |path: &str| RelPath::parse(path).unwrap();
+    let id = || AnchorId::parse("auth/flow").unwrap();
+    let alias = || Alias::parse("Flow").unwrap();
+
+    vec![
+        DiagnosticKind::Unresolved(Unresolved::PathMissing {
+            root: root(),
+            path: rel("a.md"),
+        }),
+        DiagnosticKind::Unresolved(Unresolved::PathNotDirectory {
+            root: root(),
+            path: rel("a.md"),
+        }),
+        DiagnosticKind::Unresolved(Unresolved::PathNotFile {
+            root: root(),
+            path: rel("a.md"),
+        }),
+        DiagnosticKind::Unresolved(Unresolved::PathEscapesRoot {
+            root: root(),
+            path: rel("a.md"),
+        }),
+        DiagnosticKind::Unresolved(Unresolved::SymbolMissing {
+            root: root(),
+            path: rel("a.rs"),
+            name: SymbolName::parse("Name").unwrap(),
+        }),
+        DiagnosticKind::Unresolved(Unresolved::AnchorMissing {
+            root: root(),
+            id: id(),
+        }),
+        DiagnosticKind::Unresolved(Unresolved::RootUndeclared { name: root() }),
+        DiagnosticKind::DuplicateAnchor {
+            root: root(),
+            id: id(),
+        },
+        DiagnosticKind::AliasUndeclared {
+            root: root(),
+            path: FilePath::new(Utf8PathBuf::from("a.md")).unwrap(),
+            alias: alias(),
+        },
+        DiagnosticKind::AliasDuplicate {
+            root: root(),
+            path: FilePath::new(Utf8PathBuf::from("a.md")).unwrap(),
+            alias: alias(),
+        },
+        DiagnosticKind::Malformed {
+            kind: MarkerKind::Ref,
+            reason: MalformedReason::Unclosed,
+        },
+        DiagnosticKind::Unverified(Unverified::RootAbsent {
+            name: root(),
+            declared_dir: Utf8PathBuf::from("/nowhere"),
+        }),
+        DiagnosticKind::Unverified(Unverified::NoGrammar {
+            root: root(),
+            path: rel("a.ex"),
+            extension: Some("ex".to_owned()),
+        }),
+        DiagnosticKind::Unverified(Unverified::NoGrammar {
+            root: root(),
+            path: rel("LICENSE"),
+            extension: None,
+        }),
+        DiagnosticKind::Unverified(Unverified::ParseErrors {
+            root: root(),
+            path: rel("a.rs"),
+            language: "rust",
+        }),
+        DiagnosticKind::Unverified(Unverified::ParseTimeout {
+            root: root(),
+            path: rel("a.rs"),
+        }),
+        DiagnosticKind::Unverified(Unverified::SymbolTableTruncated {
+            root: root(),
+            path: rel("a.rs"),
+        }),
+        DiagnosticKind::Unverified(Unverified::TargetTooLarge {
+            root: root(),
+            path: rel("a.rs"),
+            bytes: 2,
+            limit: 1,
+        }),
+        DiagnosticKind::Unverified(Unverified::TargetNotUtf8 {
+            root: root(),
+            path: rel("a.rs"),
+        }),
+        DiagnosticKind::Unverified(Unverified::TargetUnreadable {
+            root: root(),
+            path: rel("a.rs"),
+            message: "denied".to_owned(),
+        }),
+        DiagnosticKind::Unverified(Unverified::AnalyzeFailed {
+            root: root(),
+            path: rel("a.rs"),
+            message: "boom".to_owned(),
+        }),
+        DiagnosticKind::ExternalDuplicate {
+            root: root(),
+            id: id(),
+        },
+        DiagnosticKind::FileSkipped {
+            root: root(),
+            reason: SkipReason::NotUtf8,
+        },
+        DiagnosticKind::FileSkipped {
+            root: root(),
+            reason: SkipReason::TooLarge { bytes: 2, limit: 1 },
+        },
+        DiagnosticKind::WalkProblem {
+            root: root(),
+            message: "boom".to_owned(),
+        },
+    ]
+}
+
+#[test]
+fn every_kind_has_a_non_empty_title_naming_its_subject() {
+    for kind in every_kind() {
+        let title = kind.to_string();
+        assert!(!title.is_empty(), "{kind:?} has no title");
+        assert!(
+            !title.contains("{") && !title.contains("Unresolved("),
+            "{kind:?} rendered a debug shape: {title}"
+        );
+    }
+}
+
+/// No two kinds may read identically, or a reader cannot tell which finding they have.
+#[test]
+fn no_two_kinds_render_the_same_title() {
+    let titles: Vec<String> = every_kind().iter().map(ToString::to_string).collect();
+    let distinct: std::collections::HashSet<&String> = titles.iter().collect();
+    assert_eq!(
+        distinct.len(),
+        titles.len(),
+        "duplicate title in {titles:#?}"
+    );
+}
+
+#[test]
+fn a_hint_points_at_the_setting_or_edit_that_resolves_the_finding() {
+    let hint_for = |kind: &DiagnosticKind| kind.hint().unwrap_or_default();
+
+    let no_grammar = hint_for(&DiagnosticKind::Unverified(Unverified::NoGrammar {
+        root: root(),
+        path: crate::marker::RelPath::parse("a.ex").unwrap(),
+        extension: Some("ex".to_owned()),
+    }));
+    assert!(no_grammar.contains("`.ex`"), "{no_grammar}");
+
+    let no_extension = hint_for(&DiagnosticKind::Unverified(Unverified::NoGrammar {
+        root: root(),
+        path: crate::marker::RelPath::parse("LICENSE").unwrap(),
+        extension: None,
+    }));
+    assert!(no_extension.contains("no extension"), "{no_extension}");
+
+    let timeout = hint_for(&DiagnosticKind::Unverified(Unverified::ParseTimeout {
+        root: root(),
+        path: crate::marker::RelPath::parse("a.rs").unwrap(),
+    }));
+    assert!(timeout.contains("scan.parse-budget-ms"), "{timeout}");
+
+    let too_large = hint_for(&DiagnosticKind::Unverified(Unverified::TargetTooLarge {
+        root: root(),
+        path: crate::marker::RelPath::parse("a.rs").unwrap(),
+        bytes: 2,
+        limit: 1,
+    }));
+    assert!(too_large.contains("scan.max-file-bytes"), "{too_large}");
+
+    let undeclared = hint_for(&DiagnosticKind::AliasUndeclared {
+        root: root(),
+        path: FilePath::new(Utf8PathBuf::from("a.md")).unwrap(),
+        alias: crate::marker::Alias::parse("Flow").unwrap(),
+    });
+    assert!(undeclared.contains("@ref[target as Flow]"), "{undeclared}");
+}
+
+#[test]
+fn a_finding_with_nothing_actionable_offers_no_hint() {
+    assert!(
+        DiagnosticKind::Unresolved(Unresolved::PathMissing {
+            root: root(),
+            path: crate::marker::RelPath::parse("a.md").unwrap(),
+        })
+        .hint()
+        .is_none()
+    );
+}

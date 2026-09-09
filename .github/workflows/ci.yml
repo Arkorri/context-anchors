@@ -40,8 +40,8 @@ jobs:
       - run: cargo llvm-cov --workspace --locked --no-report
       # The thresholds exit non-zero without naming a file, so the table has to be printed.
       - run: cargo llvm-cov report --summary-only
-      - run: cargo llvm-cov report --fail-under-file-lines 60
-      - run: cargo llvm-cov report --fail-under-lines 85
+      - run: cargo llvm-cov report --fail-under-file-lines 70
+      - run: cargo llvm-cov report --fail-under-lines 88
 
   dogfood:
     name: anchr checks its own docs

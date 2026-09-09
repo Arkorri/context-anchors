@@ -9,6 +9,10 @@ use anyhow::{Context, bail};
 use camino::{Utf8Path, Utf8PathBuf};
 use serde_json::{Value, json};
 
+#[cfg(test)]
+#[allow(clippy::unwrap_used, clippy::expect_used)]
+mod tests;
+
 use super::Outcome;
 use crate::cli::{Agent, InitArgs};
 
@@ -67,14 +71,7 @@ pub fn run(args: &InitArgs) -> anyhow::Result<Outcome> {
 
     let mut out = anstream::stdout().lock();
     for planned in &plan {
-        let verb = match (planned.action, args.dry_run) {
-            (Action::Create, false) => "created",
-            (Action::Create, true) => "would create",
-            (Action::Overwrite, false) => "overwrote",
-            (Action::Overwrite, true) => "would overwrite",
-            (Action::Unchanged, _) => "unchanged",
-            (Action::Kept, _) => "kept (differs; pass --force to overwrite)",
-        };
+        let verb = verb_for(planned.action, args.dry_run);
         if !args.dry_run && matches!(planned.action, Action::Create | Action::Overwrite) {
             if let Some(parent) = planned.path.parent() {
                 fs::create_dir_all(parent).with_context(|| format!("creating {parent}"))?;
@@ -101,34 +98,65 @@ pub fn run(args: &InitArgs) -> anyhow::Result<Outcome> {
 }
 
 fn plan_file(path: &Utf8Path, contents: &str, force: bool) -> anyhow::Result<Planned> {
-    let action = match fs::read_to_string(path) {
-        Ok(existing) if existing == contents => Action::Unchanged,
-        Ok(_) if force => Action::Overwrite,
-        Ok(_) => Action::Kept,
-        Err(error) if error.kind() == std::io::ErrorKind::NotFound => Action::Create,
-        Err(error) => return Err(error).with_context(|| format!("reading {path}")),
-    };
+    let existing = read_optional(path)?;
     Ok(Planned {
         path: path.to_path_buf(),
         contents: contents.to_owned(),
-        action,
+        action: action_for(existing.as_deref(), contents, force),
     })
+}
+
+/// The file's current contents, or `None` when it is not there yet. A file that exists but
+/// cannot be read is an error rather than a silent create.
+fn read_optional(path: &Utf8Path) -> anyhow::Result<Option<String>> {
+    match fs::read_to_string(path) {
+        Ok(text) => Ok(Some(text)),
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound => Ok(None),
+        Err(error) => Err(error).with_context(|| format!("reading {path}")),
+    }
+}
+
+fn action_for(existing: Option<&str>, contents: &str, force: bool) -> Action {
+    match existing {
+        None => Action::Create,
+        Some(existing) if existing == contents => Action::Unchanged,
+        Some(_) if force => Action::Overwrite,
+        Some(_) => Action::Kept,
+    }
+}
+
+fn verb_for(action: Action, dry_run: bool) -> &'static str {
+    match (action, dry_run) {
+        (Action::Create, false) => "created",
+        (Action::Create, true) => "would create",
+        (Action::Overwrite, false) => "overwrote",
+        (Action::Overwrite, true) => "would overwrite",
+        (Action::Unchanged, _) => "unchanged",
+        (Action::Kept, _) => "kept (differs; pass --force to overwrite)",
+    }
 }
 
 /// Merges the hook into @ref[.claude/settings.json] by read-modify-write on a JSON value, so
 /// every key the file already has is preserved. Additive, so `--force` is not required.
 fn plan_claude_settings(root: &Utf8Path) -> anyhow::Result<Planned> {
     let path = root.join(CLAUDE_SETTINGS_PATH);
+    let existing = read_optional(&path)?;
+    let (contents, action) = merge_claude_hook(&path, existing.as_deref())?;
+    Ok(Planned {
+        path,
+        contents,
+        action,
+    })
+}
+
+/// The merge itself, over the file's text rather than the file, so the JSON rules are separable
+/// from the read and the write. `path` appears only in the errors.
+fn merge_claude_hook(path: &Utf8Path, existing: Option<&str>) -> anyhow::Result<(String, Action)> {
     let hook_entry = json!({
         "matcher": CLAUDE_HOOK_MATCHER,
         "hooks": [{ "type": "command", "command": CLAUDE_HOOK_COMMAND }],
     });
 
-    let existing = match fs::read_to_string(&path) {
-        Ok(text) => Some(text),
-        Err(error) if error.kind() == std::io::ErrorKind::NotFound => None,
-        Err(error) => return Err(error).with_context(|| format!("reading {path}")),
-    };
     let mut settings: Value = match &existing {
         None => json!({}),
         Some(text) => serde_json::from_str(text).with_context(|| {
@@ -174,11 +202,7 @@ fn plan_claude_settings(root: &Utf8Path) -> anyhow::Result<Planned> {
         Some(_) => Action::Overwrite,
         None => Action::Create,
     };
-    Ok(Planned {
-        path,
-        contents,
-        action,
-    })
+    Ok((contents, action))
 }
 
 fn relative_for_display<'a>(root: &Utf8Path, path: &'a Utf8Path) -> &'a Utf8Path {

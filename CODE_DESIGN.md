@@ -712,7 +712,7 @@ from its report, so coverage measures production code only.
   stay numeric, since a renumbering is visible from inside the file being edited. The inline
   `@ref[...]` examples in those documents live in fences, which is itself a test of fence
   exclusion.
-- **Coverage floor**: CI runs `cargo llvm-cov` and fails under 85% workspace lines or 60% on any
+- **Coverage floor**: CI runs `cargo llvm-cov` and fails under 88% workspace lines or 70% on any
   single file. Both ratchet upward as gaps close; neither is satisfiable by a test that asserts
   nothing, which is why coverage rather than a per-file test mandate enforces sufficiency.
 - **Security gates in CI**: `cargo deny check`, `cargo audit`, `cargo clippy -D warnings`,
