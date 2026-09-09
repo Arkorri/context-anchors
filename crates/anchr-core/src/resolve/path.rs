@@ -3,6 +3,10 @@ use std::fs;
 
 use camino::{Utf8Path, Utf8PathBuf};
 
+#[cfg(test)]
+#[allow(clippy::unwrap_used)]
+mod tests;
+
 use crate::marker::RelPath;
 use crate::root::{Root, RootName};
 use crate::tree::{FileTree, Lookup};

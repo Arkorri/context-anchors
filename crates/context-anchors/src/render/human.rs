@@ -8,8 +8,17 @@ use annotate_snippets::{AnnotationKind, Group, Level, Origin, Renderer, Snippet}
 
 use super::MAX_LISTED_SITES;
 
+#[cfg(test)]
+#[allow(clippy::unwrap_used)]
+mod tests;
+
 pub fn write(out: &mut impl Write, report: &Report) -> std::io::Result<()> {
-    let renderer = Renderer::styled();
+    write_with(out, &Renderer::styled(), report)
+}
+
+/// Styling is chosen by the caller so that a test can render deterministic bytes; `write` is the
+/// only production entry point and always styles.
+fn write_with(out: &mut impl Write, renderer: &Renderer, report: &Report) -> std::io::Result<()> {
     for diagnostic in &report.diagnostics {
         let source = first_site_source(report, diagnostic);
         let group = group_for(diagnostic, source.as_deref());
