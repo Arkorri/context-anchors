@@ -9,6 +9,10 @@ mod path;
 mod symbol;
 mod target;
 
+#[cfg(test)]
+#[allow(clippy::unwrap_used)]
+mod tests;
+
 use std::fmt;
 
 pub use alias::{Alias, AliasError, MAX_ALIAS_BYTES};

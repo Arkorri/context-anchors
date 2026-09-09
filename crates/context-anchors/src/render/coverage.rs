@@ -11,6 +11,10 @@ use anchr_core::index::Index;
 
 use super::MAX_LISTED_SITES;
 
+#[cfg(test)]
+#[allow(clippy::unwrap_used)]
+mod tests;
+
 pub fn write(out: &mut impl Write, index: &Index, report: &CoverageReport) -> anyhow::Result<()> {
     for group in &report.candidates {
         writeln!(out, "`{}` — {}", group.token, verdict(&group.kind))?;
