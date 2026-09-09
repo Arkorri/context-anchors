@@ -126,6 +126,10 @@ function render({ sorted, dropped }, ref) {
     ...sorted.map((extension) => `    "${extension}",`),
     "];",
     "",
+    // Last, so the table above it is not an item after a test module.
+    "#[cfg(test)]",
+    "mod linguist_tests;",
+    "",
   ];
   return lines.join("\n");
 }

@@ -37,3 +37,6 @@ pub mod suggest;
 pub mod text;
 #[path = "tree/tree.rs"]
 pub mod tree;
+
+#[cfg(test)]
+mod lib_tests;

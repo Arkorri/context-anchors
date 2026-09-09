@@ -1446,3 +1446,6 @@ pub(crate) static LINGUIST_EXTENSIONS: &[&str] = &[
     "zsh",
     "zsh-theme",
 ];
+
+#[cfg(test)]
+mod linguist_tests;
