@@ -3,8 +3,8 @@
 **Status:** implemented; §7 lists the stages as they were built. Companion to
 @ref[DESIGN.md] (the guarantee) and @ref[CODE_DESIGN.md] (the pipeline this extends).
 <!-- refs -->
-@ref[crates/anchr-core/src/text/mod.rs#FileAnalyzer as FileAnalyzer]
-@ref[crates/anchr-core/src/resolve/mod.rs#Unresolved as Unresolved]
+@ref[crates/anchr-core/src/text/text.rs#FileAnalyzer as FileAnalyzer]
+@ref[crates/anchr-core/src/resolve/resolve.rs#Unresolved as Unresolved]
 @ref[#cli/check as Check]
 @ref[#cli/coverage as Coverage]
 @ref[#cli/backrefs as Backrefs]
@@ -18,7 +18,7 @@ The dogfood pass that put 79 live references into this repository's design docum
 authoring cost of the grammar. A qualified symbol reference is about fifty characters:
 
 ```text
-@ref[crates/anchr-core/src/text/mod.rs#FileAnalyzer]
+@ref[crates/anchr-core/src/text/text.rs#FileAnalyzer]
 ```
 
 A document that mentions @[FileAnalyzer] ten times will get one such reference and nine backticked
@@ -37,7 +37,7 @@ being wrong is silent.
 
 Two concrete failures from that pass:
 
-- @ref[crates/anchr-core/src/root.rs#FilePath] appeared twice in the implementation notes and was
+- @ref[crates/anchr-core/src/root/root.rs#FilePath] appeared twice in the implementation notes and was
   never annotated. The coverage report listed it among 154 candidates that were deliberate skips,
   and nobody could tell the miss from the skips.
 - Eight mentions of @[Init]: the tool proposed a symbol reference to a function that happens to
@@ -92,7 +92,7 @@ ws          := one or more spaces or tabs
 ```
 
 ```markdown
-@ref[crates/anchr-core/src/text/mod.rs#FileAnalyzer as Analyzer]
+@ref[crates/anchr-core/src/text/text.rs#FileAnalyzer as Analyzer]
 @ref[#design/architecture as Architecture]
 
 Each walker thread owns an @[Analyzer]; the resolver has its own @[Analyzer].
@@ -101,7 +101,7 @@ Each walker thread owns an @[Analyzer]; the resolver has its own @[Analyzer].
 Each rule, with its reason:
 
 **Brackets on the use site.** `@[` is the existing marker opener with an empty kind, so the lexer
-in @ref[crates/anchr-core/src/marker/lex.rs] stays one regex:
+in @ref[crates/anchr-core/src/marker/lex/lex.rs] stays one regex:
 
 ```text
 @(anchor|ref|)\[(?:([^\[\]\n]*)\]|)
@@ -128,7 +128,7 @@ is case-sensitive; `as` as an alias *name* is legal and harmless. `as` as a path
 **Alias charset is ASCII identifier.** The same allowlist posture as every other newtype in the
 grammar (@ref[CODE_DESIGN.md] §10). No `/`, `.`, or `-`: an alias is a name, not a path or an id,
 and disjoint charsets mean an alias can never be mistaken for a target in a diagnostic. The
-newtype mirrors @ref[crates/anchr-core/src/marker/symbol.rs#SymbolName].
+newtype mirrors @ref[crates/anchr-core/src/marker/symbol/symbol.rs#SymbolName].
 
 **No reserved aliases.** `@anchor[` and `@ref[` do not overlap with `@[`, so `@[anchor]` is a
 legal, if odd, alias use.
@@ -153,12 +153,12 @@ The anchor `id_span` ends at the end of the target token, not at the end of the 
 <!-- @anchor[aliases/semantics] -->
 
 **Scope.** The alias table is per file and built from that file's markers alone, inside
-@ref[crates/anchr-core/src/index.rs#FileRecord]. Declarations may appear anywhere in the file.
+@ref[crates/anchr-core/src/index/index.rs#FileRecord]. Declarations may appear anywhere in the file.
 The same alias in two files is two unrelated bindings. There is no inheritance across files and no
 root-level table (§8).
 
 **Declaration.** `@ref[target as Alias]` is an ordinary reference in every existing sense: it is
-resolved by @ref[crates/anchr-core/src/resolve/mod.rs#Resolver], counted in `refs_checked`, a
+resolved by @ref[crates/anchr-core/src/resolve/resolve.rs#Resolver], counted in `refs_checked`, a
 reference site for @[Backrefs], and its `id_span` is rewritten by `anchr rename` when the target is
 an anchor. It additionally records the alias and its span.
 
@@ -185,12 +185,12 @@ as extra locations, and the language server attaches the use sites as related in
 Grouping is unchanged.
 
 **Unused.** A declared alias with zero uses is reported by `anchr coverage`
-(@ref[crates/anchr-core/src/coverage/mod.rs]) as an advisory candidate group of kind
+(@ref[crates/anchr-core/src/coverage/coverage.rs]) as an advisory candidate group of kind
 `unused-alias`, its one site the declaration. @[Check] never reports it: check's contract is
 soundness of what is asserted, and an unused import asserts nothing false.
 
 **Diagnostics are keyed by file.** `AliasUndeclared` and `AliasDuplicate` carry the file path in
-their @ref[crates/anchr-core/src/diagnostic.rs#DiagnosticKind] key, because the file *is* the
+their @ref[crates/anchr-core/src/diagnostic/diagnostic.rs#DiagnosticKind] key, because the file *is* the
 scope: "alias `Analyser` is not declared in `docs/x.md`" is the cause, and the did-you-mean
 candidates differ per file. This is the same reasoning that put the path in `NoGrammar`. They are
 siblings of `DuplicateAnchor`, not @[Unresolved] variants: @[Unresolved] is the resolver's
@@ -201,7 +201,7 @@ and the resolver has no file context.
 are references and are dropped too. **`PATHS` filtering** applies to undeclared and duplicate
 findings by file, exactly as it does to references and malformed markers.
 
-**Rename.** `anchr rename old new` (anchor ids, @ref[crates/anchr-core/src/rename.rs]) rewrites the
+**Rename.** `anchr rename old new` (anchor ids, @ref[crates/anchr-core/src/rename/rename.rs]) rewrites the
 `id_span` of aliased declarations as for plain references; uses carry no id and are untouched.
 Renaming an *alias* is a file-local operation, declaration token plus every use, exposed through
 the language server's rename request, which disambiguates by cursor position: on the anchor id it
@@ -217,8 +217,8 @@ group by cause, because undeclared and duplicate group per file and alias
 
 ```markdown
 <!-- refs -->
-@ref[crates/anchr-core/src/text/mod.rs#FileAnalyzer as Analyzer]
-@ref[crates/anchr-core/src/root.rs#FilePath as FilePath]
+@ref[crates/anchr-core/src/text/text.rs#FileAnalyzer as Analyzer]
+@ref[crates/anchr-core/src/root/root.rs#FilePath as FilePath]
 @ref[#design/architecture as Architecture]
 
 Each walker thread owns an @[Analyzer]; the resolver has its own @[Analyzer].
@@ -229,7 +229,7 @@ and rebuilt per run.
 After @[FileAnalyzer] is renamed to `Analyzer` in code:
 
 ```text
-error: no declaration named `FileAnalyzer` in `crates/anchr-core/src/text/mod.rs` (root `repo`)
+error: no declaration named `FileAnalyzer` in `crates/anchr-core/src/text/text.rs` (root `repo`)
  --> docs/internals.md:2:1
   = help: did you mean `Analyzer`?
   = note: alias `Analyzer` has 2 uses in this file
@@ -264,15 +264,15 @@ teaches these.
 
 Names refer to @ref[crates/anchr-core/src/] unless noted; each item is one PR in the stack.
 
-1. **Grammar and lexing.** @ref[crates/anchr-core/src/marker/alias.rs] (new):
-   @ref[crates/anchr-core/src/marker/alias.rs#Alias] newtype with allowlist and limits.
-   @ref[crates/anchr-core/src/marker/target.rs#parse_target] tokenises the body first, runs the
+1. **Grammar and lexing.** @ref[crates/anchr-core/src/marker/alias/alias.rs] (new):
+   @ref[crates/anchr-core/src/marker/alias/alias.rs#Alias] newtype with allowlist and limits.
+   @ref[crates/anchr-core/src/marker/target/target.rs#parse_target] tokenises the body first, runs the
    existing grammar on the target token, and shifts spans by the token's offset. The regex above;
    `MarkerKind::Use`, `MarkerPayload::Use`, an alias on `MarkerPayload::Ref`; a malformed reason
    for invalid aliases. Existing exhaustive matches learn to ignore uses; fuzz targets `lex` and
    `parse-target` cover the new shapes. Green on its own: no `@[` exists in scanned files today.
 2. **Binding and diagnostics.** The per-file alias table in
-   @ref[crates/anchr-core/src/index.rs#FileRecord], built when a file is indexed and looked up
+   @ref[crates/anchr-core/src/index/index.rs#FileRecord], built when a file is indexed and looked up
    lazily so the table is the single owner. @[Backrefs] chains direct references with bound uses;
    a reference site records whether it came through an alias so @ref[#cli/rename] skips uses
    explicitly. `AliasUndeclared` and `AliasDuplicate`; the summary's
@@ -283,7 +283,7 @@ Names refer to @ref[crates/anchr-core/src/] unless noted; each item is one PR in
    like `Scope` matches English) become `@[X]` proposals that @[Annotate] applies. Unused aliases
    are advisories, excluded from the proposal list and from the total, since they are not
    reference-shaped strings. Bound uses count as annotated.
-4. **Language server** (@ref[crates/context-anchors/src/lsp/server.rs]). Definition on a use
+4. **Language server** (@ref[crates/context-anchors/src/lsp/server/server.rs]). Definition on a use
    returns the target's locations plus the declaration; references synthesize the target from the
    binding; rename disambiguates by cursor offset; document symbols list declarations.
 5. **Documentation and dogfood.** @ref[#design/grammar], the README, the @[Init] template, and the

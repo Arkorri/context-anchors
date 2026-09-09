@@ -3,7 +3,7 @@
 // decide whether `name.ext` in prose is file-shaped:
 // @noref[scripts/src/linguist/gen-extensions.mjs, languages.yml]
 //
-//   @ref[crates/anchr-core/src/coverage/linguist.rs]   sorted `&[&str]`, one entry per line
+//   @ref[crates/anchr-core/src/coverage/linguist/linguist.rs]   sorted `&[&str]`, one entry per line
 //
 // The source is pinned to one Linguist commit so regeneration is deterministic; CI regenerates
 // from the pin and fails on any diff. Bumping Linguist is a change to LINGUIST_REF plus a rerun,
@@ -25,7 +25,7 @@ const SOURCE_PATH = "lib/linguist/languages.yml";
 const MINIMUM_ENTRIES = 1000;
 
 const REPO_ROOT = repoRoot(import.meta.url);
-const DEFAULT_OUT = join(REPO_ROOT, "crates", "anchr-core", "src", "coverage", "linguist.rs");
+const DEFAULT_OUT = join(REPO_ROOT, "crates", "anchr-core", "src", "coverage", "linguist", "linguist.rs");
 
 async function main() {
   const { values: args } = parseArgs({

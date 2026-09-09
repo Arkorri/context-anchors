@@ -1,11 +1,15 @@
+#[path = "cli/cli.rs"]
 mod cli;
+#[path = "commands/commands.rs"]
 mod commands;
+#[path = "lsp/lsp.rs"]
 mod lsp;
+#[path = "render/render.rs"]
 mod render;
 
 #[cfg(test)]
 #[allow(clippy::unwrap_used)]
-mod tests;
+mod main_tests;
 
 use std::process::ExitCode;
 

@@ -8,9 +8,9 @@ remaining coverage candidates visible) and @ref[CODE_DESIGN.md] (the pipeline th
 @ref[#cli/annotate as Annotate]
 @ref[#cli/backrefs as Backrefs]
 @ref[#cli/rename as Rename]
-@ref[crates/anchr-core/src/marker/noref.rs#NoRefEntry as NoRefEntry]
-@ref[crates/anchr-core/src/noref.rs#NoRefSet as NoRefSet]
-@ref[crates/anchr-core/src/config.rs#IgnoreConfig as IgnoreConfig]
+@ref[crates/anchr-core/src/marker/noref/noref.rs#NoRefEntry as NoRefEntry]
+@ref[crates/anchr-core/src/noref/noref.rs#NoRefSet as NoRefSet]
+@ref[crates/anchr-core/src/config/config.rs#IgnoreConfig as IgnoreConfig]
 @noref[foo.ts, src/file.ts, src/x.ts, docs/CLAUDE.md, crates/x/src/lib.rs, research/, drafts/, build/, .claude/, .claude/skills/]
 
 ## 1. Problem
