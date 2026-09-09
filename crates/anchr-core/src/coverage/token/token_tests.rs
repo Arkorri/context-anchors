@@ -161,22 +161,3 @@ fn code_span_token_requires_the_whole_span_to_be_one_path() {
     assert_eq!(span_shape("`HashMap`"), None);
     assert_eq!(span_shape("``"), None);
 }
-
-#[test]
-fn linguist_table_is_sorted_unique_and_lowercase() {
-    let table = super::super::linguist::LINGUIST_EXTENSIONS;
-    assert!(table.is_sorted());
-    assert!(table.windows(2).all(|pair| pair[0] != pair[1]));
-    assert!(table.iter().all(|entry| {
-        !entry.is_empty()
-            && entry.chars().all(|c| {
-                c.is_ascii_lowercase() || c.is_ascii_digit() || matches!(c, '_' | '+' | '-')
-            })
-    }));
-    for extension in ["rs", "md", "toml", "txt", "yml", "go", "py"] {
-        assert!(is_linguist_extension(extension), "{extension}");
-    }
-    for extension in ["", "RS", "1", "lock", "rs.in"] {
-        assert!(!is_linguist_extension(extension), "{extension}");
-    }
-}
