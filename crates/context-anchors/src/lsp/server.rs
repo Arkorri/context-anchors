@@ -29,6 +29,10 @@ use lsp_server::{ErrorCode, Message, Notification, Request, Response};
 use super::convert;
 use crate::render::json::code;
 
+#[cfg(test)]
+#[allow(clippy::unwrap_used, clippy::expect_used)]
+mod tests;
+
 pub struct Server {
     workspace: Workspace,
     root_dir: Utf8PathBuf,
@@ -55,37 +59,16 @@ impl Server {
         let discovered = anchr_core::config::discover(&start)?;
         let root_dir = discovered.root_dir.clone();
         let workspace = Workspace::load(discovered)?;
-        let offers_utf8 = params
-            .capabilities
-            .general
-            .as_ref()
-            .and_then(|general| general.position_encodings.as_ref())
-            .is_some_and(|encodings| encodings.contains(&PositionEncodingKind::UTF8));
         Ok(Self {
             workspace,
             root_dir,
-            encoding: if offers_utf8 {
-                PositionEncoding::Utf8
-            } else {
-                PositionEncoding::Utf16
-            },
+            encoding: negotiated_encoding(params),
             open: HashMap::new(),
         })
     }
 
     pub fn capabilities(&self) -> ServerCapabilities {
-        ServerCapabilities {
-            position_encoding: Some(match self.encoding {
-                PositionEncoding::Utf8 => PositionEncodingKind::UTF8,
-                PositionEncoding::Utf16 => PositionEncodingKind::UTF16,
-            }),
-            text_document_sync: Some(TextDocumentSyncCapability::Kind(TextDocumentSyncKind::FULL)),
-            definition_provider: Some(OneOf::Left(true)),
-            references_provider: Some(OneOf::Left(true)),
-            rename_provider: Some(OneOf::Left(true)),
-            document_symbol_provider: Some(OneOf::Left(true)),
-            ..ServerCapabilities::default()
-        }
+        capabilities_for(self.encoding)
     }
 
     pub fn handle_request(&mut self, request: Request) -> Response {
@@ -105,15 +88,7 @@ impl Server {
                 "unsupported request `{other}`"
             ))),
         };
-        match outcome {
-            Ok(value) => Response::new_ok(id, value),
-            Err(HandlerError::InvalidParams(message)) => {
-                Response::new_err(id, ErrorCode::InvalidParams as i32, message)
-            }
-            Err(HandlerError::Internal(message)) => {
-                Response::new_err(id, ErrorCode::InternalError as i32, message)
-            }
-        }
+        response_for(id, outcome)
     }
 
     /// Notifications produce outgoing messages (published diagnostics) rather than a response.
@@ -657,5 +632,50 @@ impl std::fmt::Debug for Server {
             .field("encoding", &self.encoding)
             .field("open", &self.open.keys().collect::<Vec<_>>())
             .finish_non_exhaustive()
+    }
+}
+
+/// UTF-8 positions only when the client says it understands them; UTF-16 is the protocol default
+/// and the safe fallback, since guessing wrong misplaces every column on a line.
+fn negotiated_encoding(params: &InitializeParams) -> PositionEncoding {
+    let offers_utf8 = params
+        .capabilities
+        .general
+        .as_ref()
+        .and_then(|general| general.position_encodings.as_ref())
+        .is_some_and(|encodings| encodings.contains(&PositionEncodingKind::UTF8));
+    if offers_utf8 {
+        PositionEncoding::Utf8
+    } else {
+        PositionEncoding::Utf16
+    }
+}
+
+fn capabilities_for(encoding: PositionEncoding) -> ServerCapabilities {
+    ServerCapabilities {
+        position_encoding: Some(match encoding {
+            PositionEncoding::Utf8 => PositionEncodingKind::UTF8,
+            PositionEncoding::Utf16 => PositionEncodingKind::UTF16,
+        }),
+        text_document_sync: Some(TextDocumentSyncCapability::Kind(TextDocumentSyncKind::FULL)),
+        definition_provider: Some(OneOf::Left(true)),
+        references_provider: Some(OneOf::Left(true)),
+        rename_provider: Some(OneOf::Left(true)),
+        document_symbol_provider: Some(OneOf::Left(true)),
+        ..ServerCapabilities::default()
+    }
+}
+
+/// Bad input is the client's fault and internal failures are ours; the codes are what an editor
+/// uses to decide whether to retry or surface the message.
+fn response_for(id: lsp_server::RequestId, outcome: HandlerResult) -> Response {
+    match outcome {
+        Ok(value) => Response::new_ok(id, value),
+        Err(HandlerError::InvalidParams(message)) => {
+            Response::new_err(id, ErrorCode::InvalidParams as i32, message)
+        }
+        Err(HandlerError::Internal(message)) => {
+            Response::new_err(id, ErrorCode::InternalError as i32, message)
+        }
     }
 }
