@@ -3,6 +3,10 @@ mod commands;
 mod lsp;
 mod render;
 
+#[cfg(test)]
+#[allow(clippy::unwrap_used)]
+mod tests;
+
 use std::process::ExitCode;
 
 use clap::Parser;
@@ -26,12 +30,16 @@ fn main() -> ExitCode {
         Command::Lsp => lsp::run().map(|()| commands::Outcome::Clean),
         Command::Completions(args) => commands::completions::run(&args),
     };
+    if let Err(error) = &outcome {
+        anstream::eprintln!("error: {error:#}");
+    }
+    ExitCode::from(exit_code(&outcome))
+}
+
+fn exit_code(outcome: &anyhow::Result<commands::Outcome>) -> u8 {
     match outcome {
-        Ok(commands::Outcome::Clean) => ExitCode::from(EXIT_CLEAN),
-        Ok(commands::Outcome::Errors) => ExitCode::from(EXIT_ERRORS),
-        Err(error) => {
-            anstream::eprintln!("error: {error:#}");
-            ExitCode::from(EXIT_FAILURE)
-        }
+        Ok(commands::Outcome::Clean) => EXIT_CLEAN,
+        Ok(commands::Outcome::Errors) => EXIT_ERRORS,
+        Err(_) => EXIT_FAILURE,
     }
 }
