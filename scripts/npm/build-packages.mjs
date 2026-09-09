@@ -38,13 +38,13 @@ const LICENSE = "MIT OR Apache-2.0";
 const LICENSE_FILES = ["LICENSE-MIT", "LICENSE-APACHE"];
 const REPO_ROOT = fileURLToPath(new URL("../../", import.meta.url));
 
-// Linux uses the static musl builds so one package per CPU covers glibc and musl systems.
 function copyLicenses(packageDir) {
   for (const file of LICENSE_FILES) {
     copyFileSync(join(REPO_ROOT, file), join(packageDir, file));
   }
 }
 
+// Linux uses the static musl builds so one package per CPU covers glibc and musl systems.
 const PLATFORMS = {
   "aarch64-apple-darwin": { os: "darwin", cpu: "arm64" },
   "x86_64-apple-darwin": { os: "darwin", cpu: "x64" },
@@ -115,7 +115,7 @@ for (const [triple, platform] of Object.entries(PLATFORMS)) {
     license: LICENSE,
     os: [platform.os],
     cpu: [platform.cpu],
-    files: ["bin"],
+    files: ["bin", ...LICENSE_FILES],
   });
   built.push(packageName);
   console.log(`built ${packageName}`);
@@ -133,7 +133,7 @@ writeJson(join(shimDir, "package.json"), {
   repository: REPOSITORY,
   license: LICENSE,
   bin: { [BIN]: `bin/${BIN}.js` },
-  files: ["bin", "README.md"],
+  files: ["bin", "README.md", ...LICENSE_FILES],
   engines: { node: ">=18" },
   optionalDependencies: Object.fromEntries(built.map((name) => [name, version])),
 });
