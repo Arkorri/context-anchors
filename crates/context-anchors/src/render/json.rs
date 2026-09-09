@@ -14,6 +14,10 @@ use anchr_core::resolve::{Unresolved, Unverified};
 use anchr_core::text::RegionKind;
 use serde::Serialize;
 
+#[cfg(test)]
+#[allow(clippy::unwrap_used)]
+mod tests;
+
 pub const SCHEMA_VERSION: u32 = 1;
 
 pub fn write(out: &mut impl Write, report: &Report) -> anyhow::Result<()> {

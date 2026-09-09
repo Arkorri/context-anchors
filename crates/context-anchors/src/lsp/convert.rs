@@ -1,6 +1,10 @@
 //! Translation between anchr's byte spans and root-relative paths and the protocol's
 //! positions and URIs.
 
+#[cfg(test)]
+#[allow(clippy::unwrap_used)]
+mod tests;
+
 use anchr_core::root::FilePath;
 use anchr_core::span::{ByteSpan, LineIndex, PositionEncoding, ProtocolPosition};
 use camino::{Utf8Path, Utf8PathBuf};

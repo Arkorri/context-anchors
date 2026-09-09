@@ -6,6 +6,10 @@ pub mod coverage;
 pub mod init;
 pub mod rename;
 
+#[cfg(test)]
+#[allow(clippy::unwrap_used)]
+mod tests;
+
 use anchr_core::config::{self, Discovered};
 use anchr_core::root::FilePath;
 use anyhow::{Context, bail};
