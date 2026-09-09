@@ -60,7 +60,19 @@ jobs:
       - uses: actions/setup-node@v4
         with:
           node-version: 20
-      - run: node scripts/linguist/gen-extensions.mjs --check
+      - run: node scripts/src/linguist/gen-extensions.mjs --check
+
+  scripts:
+    name: script tests
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+      # Node 20 has no glob support in --test, and a bare directory path is read as a module,
+      # so the shell supplies the file list.
+      - run: node --test $(find scripts/tests -name '*.test.mjs')
 
   msrv:
     name: build on MSRV

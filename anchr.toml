@@ -7,7 +7,8 @@ name = "context-anchors"
 # Generated build output and the per-crate test snapshots are not documentation.
 paths = ["target/**", "**/snapshots/**"]
 # Files that live in a user's repository are never references here, plus a registry, a file
-# inside the tree-sitter grammars, and example paths under a `src/` this repository does not have.
+# inside the tree-sitter grammars, and example paths under a bare `src/`. The glob is anchored,
+# so it never hides a real reference under `scripts/src/`.
 tokens = [
   "CLAUDE.md", "AGENTS.md", "GEMINI.md", "package.json", "build.rs", "CHANGELOG.md",
   ".claude-plugin/marketplace.json", "dist-manifest.json", "crates.io", "tags.scm", "src/**",

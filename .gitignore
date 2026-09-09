@@ -15,5 +15,5 @@ fuzz/target/
 fuzz/artifacts/
 fuzz/corpus/
 
-# npm packages assembled by scripts/npm/build-packages.mjs
+# npm packages assembled by scripts/src/npm/build-packages.mjs
 npm-dist/

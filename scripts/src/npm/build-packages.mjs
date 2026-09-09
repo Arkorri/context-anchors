@@ -1,6 +1,6 @@
 #!/usr/bin/env node
 // Builds the npm packages for one release from cargo-dist's manifest and archives:
-// @noref[bin/anchr.js, scripts/npm/build-packages.mjs]
+// @noref[bin/anchr.js, scripts/src/npm/build-packages.mjs]
 //
 //   @context-anchors/<os>-<cpu>   one per platform, holding just the binary
 //   context-anchors               the shim: `bin/anchr.js` plus optionalDependencies on each
@@ -9,7 +9,7 @@
 // This is the esbuild/biome layout. No postinstall download: it works under --ignore-scripts,
 // offline, and with lockfile integrity, which cargo-dist's own npm installer does not.
 //
-//   node scripts/npm/build-packages.mjs --manifest dist-manifest.json \
+//   node scripts/src/npm/build-packages.mjs --manifest dist-manifest.json \
 //        --artifacts target/distrib --out npm-dist [--only-available]
 
 import { execFileSync } from "node:child_process";
@@ -26,8 +26,10 @@ import {
   writeFileSync,
 } from "node:fs";
 import { tmpdir } from "node:os";
-import { join } from "node:path";
+import { join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
+
+import { repoRoot } from "../repo-root.mjs";
 import { parseArgs } from "node:util";
 
 const SCOPE = "@context-anchors";
@@ -36,7 +38,7 @@ const BIN = "anchr";
 const REPOSITORY = "https://github.com/Arkorri/context-anchors";
 const LICENSE = "MIT OR Apache-2.0";
 const LICENSE_FILES = ["LICENSE-MIT", "LICENSE-APACHE"];
-const REPO_ROOT = fileURLToPath(new URL("../../", import.meta.url));
+const REPO_ROOT = repoRoot(import.meta.url);
 
 function copyLicenses(packageDir) {
   for (const file of LICENSE_FILES) {
@@ -53,62 +55,25 @@ const PLATFORMS = {
   "x86_64-pc-windows-msvc": { os: "win32", cpu: "x64" },
 };
 
-const { values: args } = parseArgs({
-  options: {
-    manifest: { type: "string" },
-    artifacts: { type: "string" },
-    out: { type: "string" },
-    "only-available": { type: "boolean", default: false },
-  },
-});
-for (const required of ["manifest", "artifacts", "out"]) {
-  if (!args[required]) {
-    console.error(`missing --${required}`);
-    process.exit(2);
-  }
+/// The archive in the manifest that carries the binary for one target triple.
+function findArchiveName(manifest, triple) {
+  return (
+    Object.entries(manifest.artifacts ?? {}).find(
+      ([, artifact]) =>
+        artifact.kind === "executable-zip" && artifact.target_triples?.includes(triple),
+    )?.[0] ?? null
+  );
 }
 
-const manifest = JSON.parse(readFileSync(args.manifest, "utf8"));
-const release = manifest.releases?.find((r) => r.app_name === SHIM_NAME);
-if (!release) {
-  console.error(`manifest has no release for ${SHIM_NAME}`);
-  process.exit(2);
+function versionOf(manifest) {
+  const release = manifest.releases?.find((r) => r.app_name === SHIM_NAME);
+  if (!release) throw new Error(`manifest has no release for ${SHIM_NAME}`);
+  return release.app_version;
 }
-const version = release.app_version;
 
-rmSync(args.out, { recursive: true, force: true });
-mkdirSync(args.out, { recursive: true });
-
-const built = [];
-for (const [triple, platform] of Object.entries(PLATFORMS)) {
-  const archiveName = Object.entries(manifest.artifacts).find(
-    ([, artifact]) =>
-      artifact.kind === "executable-zip" && artifact.target_triples?.includes(triple),
-  )?.[0];
-  const archivePath = archiveName ? join(args.artifacts, archiveName) : null;
-  if (!archivePath || !existsSync(archivePath)) {
-    if (args["only-available"]) {
-      console.log(`skip ${triple}: no archive available`);
-      continue;
-    }
-    console.error(
-      archivePath
-        ? `archive missing: ${archivePath}`
-        : `manifest has no executable archive for ${triple}`,
-    );
-    process.exit(2);
-  }
-
-  const binaryName = platform.os === "win32" ? `${BIN}.exe` : BIN;
-  const binary = extractBinary(archivePath, binaryName);
-  const packageName = `${SCOPE}/${platform.os}-${platform.cpu}`;
-  const dir = join(args.out, SCOPE, `${platform.os}-${platform.cpu}`);
-  mkdirSync(join(dir, "bin"), { recursive: true });
-  copyFileSync(binary, join(dir, "bin", binaryName));
-  chmodSync(join(dir, "bin", binaryName), 0o755);
-  copyLicenses(dir);
-  writeJson(join(dir, "package.json"), {
-    name: packageName,
+function platformPackageJson(version, platform) {
+  return {
+    name: `${SCOPE}/${platform.os}-${platform.cpu}`,
     version,
     description: `${BIN} binary for ${platform.os}-${platform.cpu}; installed by the ${SHIM_NAME} package`,
     repository: REPOSITORY,
@@ -116,28 +81,108 @@ for (const [triple, platform] of Object.entries(PLATFORMS)) {
     os: [platform.os],
     cpu: [platform.cpu],
     files: ["bin", ...LICENSE_FILES],
-  });
-  built.push(packageName);
-  console.log(`built ${packageName}`);
+  };
 }
 
-const shimDir = join(args.out, SHIM_NAME);
-mkdirSync(join(shimDir, "bin"), { recursive: true });
-writeFileSync(join(shimDir, "bin", `${BIN}.js`), shimSource(), { mode: 0o755 });
-writeFileSync(join(shimDir, "README.md"), readme());
-copyLicenses(shimDir);
-writeJson(join(shimDir, "package.json"), {
-  name: SHIM_NAME,
-  version,
-  description: "anchr: a compiler-style checker for @anchor/@ref markers in docs, agent context files, and code comments",
-  repository: REPOSITORY,
-  license: LICENSE,
-  bin: { [BIN]: `bin/${BIN}.js` },
-  files: ["bin", "README.md", ...LICENSE_FILES],
-  engines: { node: ">=18" },
-  optionalDependencies: Object.fromEntries(built.map((name) => [name, version])),
-});
-console.log(`built ${SHIM_NAME} with ${built.length} platform packages`);
+/// One optional dependency per platform package actually built, all pinned to this version: npm
+/// installs whichever matches and skips the rest.
+function shimPackageJson(version, built) {
+  return {
+    name: SHIM_NAME,
+    version,
+    description:
+      "anchr: a compiler-style checker for @anchor/@ref markers in docs, agent context files, and code comments",
+    repository: REPOSITORY,
+    license: LICENSE,
+    bin: { [BIN]: `bin/${BIN}.js` },
+    files: ["bin", "README.md", ...LICENSE_FILES],
+    engines: { node: ">=18" },
+    optionalDependencies: Object.fromEntries(built.map((name) => [name, version])),
+  };
+}
+
+function main() {
+  const { values: args } = parseArgs({
+    options: {
+      manifest: { type: "string" },
+      artifacts: { type: "string" },
+      out: { type: "string" },
+      "only-available": { type: "boolean", default: false },
+    },
+  });
+  for (const required of ["manifest", "artifacts", "out"]) {
+    if (!args[required]) {
+      console.error(`missing --${required}`);
+      process.exit(2);
+    }
+  }
+
+  const manifest = JSON.parse(readFileSync(args.manifest, "utf8"));
+  let version;
+  try {
+    version = versionOf(manifest);
+  } catch (error) {
+    console.error(error.message);
+    process.exit(2);
+  }
+
+  rmSync(args.out, { recursive: true, force: true });
+  mkdirSync(args.out, { recursive: true });
+
+  const built = [];
+  for (const [triple, platform] of Object.entries(PLATFORMS)) {
+    const archiveName = findArchiveName(manifest, triple);
+    const archivePath = archiveName ? join(args.artifacts, archiveName) : null;
+    if (!archivePath || !existsSync(archivePath)) {
+      if (args["only-available"]) {
+        console.log(`skip ${triple}: no archive available`);
+        continue;
+      }
+      console.error(
+        archivePath
+          ? `archive missing: ${archivePath}`
+          : `manifest has no executable archive for ${triple}`,
+      );
+      process.exit(2);
+    }
+
+    const binaryName = platform.os === "win32" ? `${BIN}.exe` : BIN;
+    const binary = extractBinary(archivePath, binaryName);
+    const dir = join(args.out, SCOPE, `${platform.os}-${platform.cpu}`);
+    mkdirSync(join(dir, "bin"), { recursive: true });
+    copyFileSync(binary, join(dir, "bin", binaryName));
+    chmodSync(join(dir, "bin", binaryName), 0o755);
+    copyLicenses(dir);
+    const packageJson = platformPackageJson(version, platform);
+    writeJson(join(dir, "package.json"), packageJson);
+    built.push(packageJson.name);
+    console.log(`built ${packageJson.name}`);
+  }
+
+  const shimDir = join(args.out, SHIM_NAME);
+  mkdirSync(join(shimDir, "bin"), { recursive: true });
+  writeFileSync(join(shimDir, "bin", `${BIN}.js`), shimSource(), { mode: 0o755 });
+  writeFileSync(join(shimDir, "README.md"), readme());
+  copyLicenses(shimDir);
+  writeJson(join(shimDir, "package.json"), shimPackageJson(version, built));
+  console.log(`built ${SHIM_NAME} with ${built.length} platform packages`);
+}
+
+// Only the CLI invocation runs; importing the module for tests must not touch the filesystem.
+if (process.argv[1] && resolve(process.argv[1]) === fileURLToPath(import.meta.url)) {
+  main();
+}
+
+export {
+  PLATFORMS,
+  findArchiveName,
+  findFile,
+  platformPackageJson,
+  readme,
+  shimPackageJson,
+  shimSource,
+  versionOf,
+};
 
 function extractBinary(archivePath, binaryName) {
   const scratch = mkdtempSync(join(tmpdir(), "anchr-npm-"));
