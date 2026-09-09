@@ -27,13 +27,22 @@ import {
 } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+import { fileURLToPath } from "node:url";
 import { parseArgs } from "node:util";
 
 const SCOPE = "@context-anchors";
 const SHIM_NAME = "context-anchors";
 const BIN = "anchr";
-const REPOSITORY = "https://github.com/averykempton/context-anchors";
+const REPOSITORY = "https://github.com/Arkorri/context-anchors";
 const LICENSE = "MIT OR Apache-2.0";
+const LICENSE_FILES = ["LICENSE-MIT", "LICENSE-APACHE"];
+const REPO_ROOT = fileURLToPath(new URL("../../", import.meta.url));
+
+function copyLicenses(packageDir) {
+  for (const file of LICENSE_FILES) {
+    copyFileSync(join(REPO_ROOT, file), join(packageDir, file));
+  }
+}
 
 // Linux uses the static musl builds so one package per CPU covers glibc and musl systems.
 const PLATFORMS = {
@@ -97,6 +106,7 @@ for (const [triple, platform] of Object.entries(PLATFORMS)) {
   mkdirSync(join(dir, "bin"), { recursive: true });
   copyFileSync(binary, join(dir, "bin", binaryName));
   chmodSync(join(dir, "bin", binaryName), 0o755);
+  copyLicenses(dir);
   writeJson(join(dir, "package.json"), {
     name: packageName,
     version,
@@ -105,7 +115,7 @@ for (const [triple, platform] of Object.entries(PLATFORMS)) {
     license: LICENSE,
     os: [platform.os],
     cpu: [platform.cpu],
-    files: ["bin"],
+    files: ["bin", ...LICENSE_FILES],
   });
   built.push(packageName);
   console.log(`built ${packageName}`);
@@ -115,6 +125,7 @@ const shimDir = join(args.out, SHIM_NAME);
 mkdirSync(join(shimDir, "bin"), { recursive: true });
 writeFileSync(join(shimDir, "bin", `${BIN}.js`), shimSource(), { mode: 0o755 });
 writeFileSync(join(shimDir, "README.md"), readme());
+copyLicenses(shimDir);
 writeJson(join(shimDir, "package.json"), {
   name: SHIM_NAME,
   version,
@@ -122,7 +133,7 @@ writeJson(join(shimDir, "package.json"), {
   repository: REPOSITORY,
   license: LICENSE,
   bin: { [BIN]: `bin/${BIN}.js` },
-  files: ["bin", "README.md"],
+  files: ["bin", "README.md", ...LICENSE_FILES],
   engines: { node: ">=18" },
   optionalDependencies: Object.fromEntries(built.map((name) => [name, version])),
 });

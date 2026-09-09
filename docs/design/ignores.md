@@ -80,7 +80,7 @@ tokens = ["CLAUDE.md", "AGENTS.md", "src/**"]      # globs matched against the w
   accepted in both places (`*`, `**`, `?`, `[ab]`, `{a,b}`), with `*` confined to one path
   segment. One lexical fact follows from the marker shape rather than from any rule: a marker
   body cannot contain `[`, `]`, or a bare comma, so character classes and alternation are
-  spellable only in `anchr.toml`. The matcher is the same; write two entries instead.
+  spellable only in @ref[anchr.toml]. The matcher is the same; write two entries instead.
 - **Case-sensitive**, because coverage tokens are.
 - **Duplicates are not errors.** The second copy can never match anything and is reported as
   unused (§5). @[Check] gains no diagnostic from this feature.
@@ -148,8 +148,8 @@ are:
 - A `@noref` entry that matched nothing in its file is a @[Coverage] candidate group of kind
   `unused-ignore`, its site the entry's span inside the marker. Duplicates land here too.
 - A `[ignore] tokens` entry that matched nothing in any scanned file is reported once, with
-  `anchr.toml` as its only site, and in JSON as `unused_config_ignores`. It is not a candidate:
-  candidates carry a location in an indexed file, and `anchr.toml` is not one. Only a whole-root
+  @ref[anchr.toml] as its only site, and in JSON as `unused_config_ignores`. It is not a candidate:
+  candidates carry a location in an indexed file, and @ref[anchr.toml] is not one. Only a whole-root
   run reports these; a run narrowed to some files cannot see where a root-wide entry matches.
 - `[ignore] paths` lines that match no file are not reported. A line for a directory that does
   not exist yet is a normal state, as it is in `.gitignore`.

@@ -17,7 +17,7 @@ that still uses the old name.
 Markers are recognised in Markdown prose (not inside code fences or inline code), in source
 code comments (not inside backtick spans), and anywhere in `.txt` files, in hidden directories
 such as `.claude/` like anywhere else. Files that git ignores, or that `[ignore] paths` in
-`anchr.toml` lists, are never scanned. To show a marker as an example without it being checked,
+@ref[anchr.toml] lists, are never scanned. To show a marker as an example without it being checked,
 put it in a code fence or inline code, or escape it:
 `\@ref[...]` or `@ref\[...\]`.
 
@@ -34,7 +34,7 @@ put it in a code fence or inline code, or escape it:
 
 Rules:
 
-- A bare path (`docs/x.md`) is relative to the root (the directory holding `anchr.toml`, or the
+- A bare path (`docs/x.md`) is relative to the root (the directory holding @ref[anchr.toml], or the
   git root). A path starting with `./` or `../` is relative to the file the reference is written
   in and may climb with `../`, but never above the root. `./` is required for a same-directory
   file: `x.md` always means `<root>/x.md`.
@@ -87,7 +87,7 @@ say so once and the report stops asking:
 - A backticked code symbol on its own is never a candidate: a name has no single referent.
   Declare `@ref[src/file.ts#Name as Name]` once and every `Name` in the file is proposed.
 - `@noref` is file-scoped, like an alias. For strings that are never references anywhere, use
-  `tokens` under `[ignore]` in `anchr.toml`. Files that should not be looked at at all go in
+  `tokens` under `[ignore]` in @ref[anchr.toml]. Files that should not be looked at at all go in
   `paths` there, in gitignore syntax; they are then neither scanned nor valid targets.
 - Entries are globs separated by commas, matched against the whole string (or the path of a
   `path#Name` token): `src/` is only the word `src/`, `src/**` is everything under it,

@@ -1,4 +1,4 @@
-//! `anchr.toml`: parsed defensively, then validated once into [`Config`].
+//! @ref[anchr.toml]: parsed defensively, then validated once into [`Config`].
 
 use std::collections::BTreeMap;
 use std::ops::Range;
@@ -134,7 +134,7 @@ pub struct Discovered {
     pub config: Config,
 }
 
-/// Walks up from `start` to the first directory holding `anchr.toml`; failing that, the first
+/// Walks up from `start` to the first directory holding @ref[anchr.toml]; failing that, the first
 /// holding `.git`; failing that, `start` itself with default config.
 pub fn discover(start: &Utf8Path) -> Result<Discovered, ConfigError> {
     let config_dir = start

@@ -1,6 +1,6 @@
 # Distribution
 
-**Status:** design draft
+**Status:** implemented for the binary channels; §4 records what ships at 0.0.1.
 **Companion to:** @ref[DESIGN.md] — that document covers what the tool is; this one covers how it
 ships.
 
@@ -26,14 +26,14 @@ similarly blocked on npm. Roughly 45 candidates were checked; nearly every short
 `anchorlint` was free but rejected on principle: "lint" contradicts the check-versus-lint
 distinction in @ref[#design/deferred], and the name should not undercut the design.
 
-**Remaining actions:**
+**External prerequisites for the first release** (decided 2026-09-08; nothing else is pending):
 
-- Claim `context-anchors` on npm and crates.io. crates.io has no reservation mechanism — holding
-  a name there requires publishing, so push a real `0.0.1` even if it is never marketed.
-- Create the npm org for the `@context-anchors` scope, which the platform packages in §4 require.
-  Scope availability is not checkable from outside npm; it is confirmed at creation.
-- Consider defensively reserving `anchr` on both registries so the command name cannot be
-  squatted by an unrelated package.
+- Create the npm org `context-anchors`, which owns the `@context-anchors` scope the platform
+  packages in §4 publish under. Scope availability is confirmed at creation.
+- Create a granular automation token with publish rights on that scope and on the unscoped
+  `context-anchors` name, bypass-2FA enabled, and store it as the `NPM_TOKEN` Actions secret.
+- crates.io is not published and `anchr` is not reserved on either registry. Both are decisions,
+  not oversights: see §4 and §8.
 
 ### Package name and command name are independent
 
@@ -93,9 +93,11 @@ account required.
 
 **2. npm, via platform-specific `optionalDependencies`**
 
-Structure: a tiny `anchr` package declaring optional dependencies on
-`@context-anchors/darwin-arm64`, `@context-anchors/linux-x64-gnu`, and so on. npm resolves only the matching
-platform package via `os`/`cpu` fields, and a thin shim execs the native binary.
+Structure: a tiny `context-anchors` package declaring optional dependencies on
+`@context-anchors/darwin-arm64`, `@context-anchors/linux-x64`, and so on. npm resolves only the
+matching platform package via `os`/`cpu` fields, and a thin shim execs the native binary. Both
+are built from the dist manifest by @ref[scripts/npm/build-packages.mjs] and published by
+@ref[.github/workflows/publish-npm.yml].
 
 **Not a postinstall download script.** Postinstall breaks under `--ignore-scripts`, in
 air-gapped CI, and behind corporate proxies, and it defeats lockfile integrity. The
@@ -104,8 +106,8 @@ it directly.
 
 Two things this buys that a curl installer cannot:
 
-- `npx anchr check` requires nothing pre-installed, so CI in a JS repository has no install
-  step at all.
+- `npx context-anchors check` requires nothing pre-installed, so CI in a JS repository has no
+  install step at all.
 - `package.json` plus a lockfile **pins the version**, so every developer and CI run uses an
   identical checker. That matters for a tool that gates commits.
 
@@ -127,8 +129,8 @@ A repository with `.claude-plugin/marketplace.json`, kept deliberately thin — 
 not a project. The curl installer covers the same audience in the meantime.
 
 **crates.io** — not a discovery channel for CLIs; nobody browses it looking for dev tools. It
-earns its place only if the resolver core is later published as an embeddable *library*. Publish
-`0.0.1` for the name, revisit properly later.
+earns its place only if the resolver core is later published as an embeddable *library*. Not
+published; revisit only if `anchr-core` ships as one.
 
 **MCP server** — see §5.
 
@@ -136,6 +138,27 @@ earns its place only if the resolver core is later published as an embeddable *l
 Once `anchr lsp` exists, Neovim, Helix, and Zed users wire it up in a few lines of
 configuration for free. Only VS Code requires an extension to speak to a generic LSP server. Ship
 the subcommand in v1.1; let the extension wait for demand.
+
+### Release procedure (0.0.1)
+<!-- @anchor[dist/release-procedure] -->
+
+The version in @ref[Cargo.toml] is the source of truth; dist refuses a tag that disagrees with it.
+A release is a `v<version>` tag pushed to `main`, which runs @ref[.github/workflows/release.yml]
+in this order: `plan` (validates the tag against the version and lists every artifact),
+`build-local-artifacts` (one runner per target), `build-global-artifacts` (installer scripts and
+the manifest), `host` (creates the GitHub Release; from here the release is public),
+`custom-publish-npm` (platform packages first, then the shim, with provenance), `announce`
+(a barrier, green only if everything landed). Two consequences: a failed npm publish leaves a real
+GitHub Release with no npm package, fixed by re-running that job; and a tag dist has hosted cannot
+be reused, which is why `0.0.1` is a throwaway that exercises the pipeline and claims the names.
+
+`0.0.1` is tagged by hand. A follow-up will release on a version bump instead: cargo-dist's
+`dispatch-releases` replaces the tag-push trigger with `workflow_dispatch` (input `tag`) and the
+release run creates the tag itself through `gh release create --target`, so a job on push to
+`main` only has to read the version and dispatch when no matching release exists. A tag pushed
+with `GITHUB_TOKEN` fires nothing; `workflow_dispatch` from it is the documented exception. Any
+change to @ref[dist-workspace.toml] needs `dist generate` to refresh the workflow, or `dist plan`
+fails its stale-CI check.
 
 ---
 
@@ -214,9 +237,8 @@ permissive is the only sensible choice.
 
 ## 8. Open questions
 
-1. **Defensive reservation of `anchr`.** The command name is unclaimed on both registries but
-   unprotected. Worth publishing a placeholder that points at `context-anchors`, or worth leaving
-   alone as registry clutter?
+1. **Defensive reservation of `anchr`.** Decided 2026-09-08: no. Nobody types the command name
+   into a registry; `context-anchors` is the package everywhere, and a placeholder is clutter.
 2. **Is MCP a v1 requirement?** Depends entirely on whether cross-vendor reach is a launch goal
    or a follow-up. If launch, it moves up from @ref[DESIGN.md] v2.
 3. **Which grammars make the core bundle?** Driven by where the tool is actually used first.

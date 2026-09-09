@@ -64,7 +64,7 @@ pub struct CheckArgs {
 
 #[derive(Debug, Args)]
 pub struct BackrefsArgs {
-    // @noref[src/lib.rs, docs/guide.md]
+    // @noref[src/lib.rs, docs/guide.md, anchr.toml]
     /// A target in reference syntax, e.g. `#auth/flow`, `src/lib.rs#run`, `docs/guide.md`.
     pub target: String,
 

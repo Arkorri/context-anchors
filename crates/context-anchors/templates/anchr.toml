@@ -1,5 +1,5 @@
 # anchr configuration. Every key is optional; the values shown are the defaults.
-# Docs: ANCHR.md (written by `anchr init`) or https://github.com/averykempton/context-anchors
+# Docs: ANCHR.md (written by `anchr init`) or https://github.com/Arkorri/context-anchors
 
 # [root]
 # name = "<this directory's name>"   # how other roots refer to this one; letters, digits, _ -
