@@ -5,6 +5,10 @@ use anchr_core::coverage::coverage;
 use anchr_core::edit::apply_to_files;
 use anchr_core::index::Site;
 
+#[cfg(test)]
+#[allow(clippy::unwrap_used)]
+mod tests;
+
 use super::{Outcome, current_dir, discover, files_in_root};
 use crate::cli::AnnotateArgs;
 
@@ -44,18 +48,24 @@ pub fn run(args: &AnnotateArgs) -> anyhow::Result<Outcome> {
         for path in apply_to_files(&root.dir, &proposals)? {
             writeln!(stdout, "edited {path}")?;
         }
-        writeln!(
-            stdout,
-            "annotated {count} reference{}; run `anchr check` to confirm",
-            if count == 1 { "" } else { "s" }
-        )?;
-    } else {
-        writeln!(
-            stdout,
-            "{count} proposal{}; pass --write to apply",
-            if count == 1 { "" } else { "s" }
-        )?;
     }
+    write_footer(&mut stdout, count, args.write)?;
     stdout.flush()?;
     Ok(Outcome::Clean)
+}
+
+fn write_footer(out: &mut impl Write, count: usize, wrote: bool) -> std::io::Result<()> {
+    if wrote {
+        writeln!(
+            out,
+            "annotated {count} reference{}; run `anchr check` to confirm",
+            crate::render::plural(count)
+        )
+    } else {
+        writeln!(
+            out,
+            "{count} proposal{}; pass --write to apply",
+            crate::render::plural(count)
+        )
+    }
 }

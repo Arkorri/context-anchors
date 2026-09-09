@@ -13,9 +13,22 @@ use lsp_server::{Connection, ErrorCode, Message, Response};
 
 use self::server::Server;
 
+#[cfg(test)]
+#[allow(clippy::unwrap_used, clippy::expect_used)]
+mod tests;
+
 pub fn run() -> anyhow::Result<()> {
     let (connection, io_threads) = Connection::stdio();
+    let result = serve(&connection);
+    // The writer thread ends only once the connection (and with it the sender) is gone.
+    drop(connection);
+    io_threads.join().context("shutting down stdio threads")?;
+    result
+}
 
+/// The handshake and message loop, over any transport, so a test can drive it through
+/// `Connection::memory()` instead of taking over the process's stdio.
+fn serve(connection: &Connection) -> anyhow::Result<()> {
     let (initialize_id, initialize_params) = connection
         .initialize_start()
         .context("waiting for the initialize request")?;
@@ -79,9 +92,5 @@ pub fn run() -> anyhow::Result<()> {
             Message::Response(_) => {}
         }
     }
-
-    // The writer thread ends only once the connection (and with it the sender) is gone.
-    drop(connection);
-    io_threads.join().context("shutting down stdio threads")?;
     Ok(())
 }

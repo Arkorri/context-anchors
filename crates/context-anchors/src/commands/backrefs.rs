@@ -5,6 +5,10 @@ use anchr_core::diagnostic::LocatedSite;
 use anchr_core::marker::parse_target;
 use anyhow::Context;
 
+#[cfg(test)]
+#[allow(clippy::unwrap_used)]
+mod tests;
+
 use super::{Outcome, current_dir, discover};
 use crate::cli::{BackrefsArgs, Format};
 use crate::render;
@@ -27,20 +31,21 @@ pub fn run(args: &BackrefsArgs) -> anyhow::Result<Outcome> {
 
     let mut stdout = anstream::stdout().lock();
     match args.format {
-        Format::Human => {
-            for located in &sites {
-                writeln!(stdout, "{}:{}", located.site.path, located.line_col)?;
-            }
-            writeln!(
-                stdout,
-                "{} reference{} to `{}`",
-                sites.len(),
-                if sites.len() == 1 { "" } else { "s" },
-                args.target
-            )?;
-        }
+        Format::Human => write_human(&mut stdout, &args.target, &sites)?,
         Format::Json => render::json::write_sites(&mut stdout, &args.target, &sites)?,
     }
     stdout.flush()?;
     Ok(Outcome::Clean)
+}
+
+fn write_human(out: &mut impl Write, target: &str, sites: &[LocatedSite]) -> std::io::Result<()> {
+    for located in sites {
+        writeln!(out, "{}:{}", located.site.path, located.line_col)?;
+    }
+    writeln!(
+        out,
+        "{} reference{} to `{target}`",
+        sites.len(),
+        render::plural(sites.len())
+    )
 }

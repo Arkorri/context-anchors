@@ -3,6 +3,10 @@ use std::fs;
 
 use camino::Utf8Path;
 
+#[cfg(test)]
+#[allow(clippy::unwrap_used, clippy::expect_used)]
+mod tests;
+
 use super::Unverified;
 use crate::marker::RelPath;
 use crate::root::{Root, RootName};
@@ -111,23 +115,23 @@ fn load(
 
     let table = analyzer
         .symbols(spec, &source)
-        .map_err(|error| match error {
-            AnalyzeError::ParseTimeout { .. } => Unverified::ParseTimeout {
-                root: name.clone(),
-                path: path.clone(),
-            },
-            AnalyzeError::SymbolTableTruncated => Unverified::SymbolTableTruncated {
-                root: name.clone(),
-                path: path.clone(),
-            },
-            other => Unverified::AnalyzeFailed {
-                root: name.clone(),
-                path: path.clone(),
-                message: other.to_string(),
-            },
-        })?;
+        .map_err(|error| unverified_for(name, path.clone(), error))?;
     Ok(FileSymbols {
         table,
         language: spec.name(),
     })
+}
+
+/// A timeout and a truncated table are their own findings; every other analysis failure carries
+/// its message so the cause survives into the report.
+fn unverified_for(root: RootName, path: RelPath, error: AnalyzeError) -> Unverified {
+    match error {
+        AnalyzeError::ParseTimeout { .. } => Unverified::ParseTimeout { root, path },
+        AnalyzeError::SymbolTableTruncated => Unverified::SymbolTableTruncated { root, path },
+        other => Unverified::AnalyzeFailed {
+            root,
+            path,
+            message: other.to_string(),
+        },
+    }
 }

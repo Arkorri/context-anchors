@@ -3,6 +3,10 @@ use std::io::Write;
 use anchr_core::check::Workspace;
 use anchr_core::coverage::coverage;
 
+#[cfg(test)]
+#[allow(clippy::unwrap_used)]
+mod tests;
+
 use super::{Outcome, current_dir, discover, files_in_root};
 use crate::cli::{CoverageArgs, Format};
 use crate::render;
@@ -18,10 +22,19 @@ pub fn run(args: &CoverageArgs) -> anyhow::Result<Outcome> {
     let (_, index) = workspace.current();
 
     let mut stdout = anstream::stdout().lock();
-    match args.format {
-        Format::Json => render::json::write_coverage(&mut stdout, index, &report)?,
-        Format::Human => render::coverage::write(&mut stdout, index, &report)?,
-    }
+    write_report(&mut stdout, index, &report, args.format)?;
     stdout.flush()?;
     Ok(Outcome::Clean)
+}
+
+fn write_report(
+    out: &mut impl Write,
+    index: &anchr_core::index::Index,
+    report: &anchr_core::coverage::CoverageReport,
+    format: Format,
+) -> anyhow::Result<()> {
+    match format {
+        Format::Json => render::json::write_coverage(out, index, report),
+        Format::Human => render::coverage::write(out, index, report),
+    }
 }
