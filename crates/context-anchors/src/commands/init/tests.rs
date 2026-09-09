@@ -10,8 +10,7 @@ fn merged(existing: Option<&str>) -> (String, Action) {
 
 fn merge_error(existing: &str) -> String {
     merge_claude_hook(&settings_path(), Some(existing))
-        .err()
-        .expect("the merge should refuse this file")
+        .expect_err("the merge should refuse this file")
         .to_string()
 }
 

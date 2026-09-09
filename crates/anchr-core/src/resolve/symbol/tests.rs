@@ -199,7 +199,6 @@ fn a_successful_load_is_readable_from_the_cache() {
 
     cache
         .load(&root, &path, &fixture.root_dir.join("a.rs"), &mut analyzer)
-        .ok()
         .expect("a rust file loads");
     let cached = cache.cached(&root.name, &path).unwrap();
     assert_eq!(cached.language, "rust");
