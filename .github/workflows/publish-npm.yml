@@ -34,7 +34,7 @@ jobs:
       - name: Build packages
         run: |
           printf '%s' "$PLAN" > dist-plan.json
-          node scripts/npm/build-packages.mjs --manifest dist-plan.json --artifacts target/distrib --out npm-dist
+          node scripts/src/npm/build-packages.mjs --manifest dist-plan.json --artifacts target/distrib --out npm-dist
       - name: Smoke-test the shim
         run: |
           cd npm-dist/context-anchors

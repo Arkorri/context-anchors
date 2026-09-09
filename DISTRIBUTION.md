@@ -96,7 +96,7 @@ account required.
 Structure: a tiny `context-anchors` package declaring optional dependencies on
 `@context-anchors/darwin-arm64`, `@context-anchors/linux-x64`, and so on. npm resolves only the
 matching platform package via `os`/`cpu` fields, and a thin shim execs the native binary. Both
-are built from the dist manifest by @ref[scripts/npm/build-packages.mjs] and published by
+are built from the dist manifest by @ref[scripts/src/npm/build-packages.mjs] and published by
 @ref[.github/workflows/publish-npm.yml].
 
 **Not a postinstall download script.** Postinstall breaks under `--ignore-scripts`, in
