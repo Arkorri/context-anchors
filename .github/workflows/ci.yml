@@ -27,6 +27,22 @@ jobs:
       - run: cargo clippy --workspace --all-targets --all-features --locked
       - run: cargo test --workspace --locked --no-fail-fast
 
+  coverage:
+    name: coverage thresholds
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          components: llvm-tools-preview
+      - uses: Swatinem/rust-cache@v2
+      - uses: taiki-e/install-action@cargo-llvm-cov
+      - run: cargo llvm-cov --workspace --locked --no-report
+      # The thresholds exit non-zero without naming a file, so the table has to be printed.
+      - run: cargo llvm-cov report --summary-only
+      - run: cargo llvm-cov report --fail-under-file-lines 60
+      - run: cargo llvm-cov report --fail-under-lines 85
+
   dogfood:
     name: anchr checks its own docs
     runs-on: ubuntu-latest

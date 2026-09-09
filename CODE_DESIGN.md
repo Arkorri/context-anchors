@@ -673,7 +673,11 @@ Not used, deliberately: `rayon` (walker already parallel), `tree-sitter-tags` (w
 
 ## 9. Testing
 
-- **Unit** (in each module): @[parse_target] table tests incl. every rejection reason (qualified
+Each module's unit tests live in a sibling `tests.rs` declared with `#[cfg(test)] mod tests;`, so
+they keep private access while the source file stays readable. `cargo-llvm-cov` excludes those files
+from its report, so coverage measures production code only.
+
+- **Unit** (one `tests.rs` per module): @[parse_target] table tests incl. every rejection reason (qualified
   symbol, reserved chars in path segments, `.`/`..`, trailing-slash expectation, root prefix on each
   kind); @ref[crates/anchr-core/src/marker/id.rs#AnchorId] charset; lexer with `proptest`
   (round-trip: any generated valid marker embedded in random text is found with the right span; any
@@ -708,6 +712,9 @@ Not used, deliberately: `rayon` (walker already parallel), `tree-sitter-tags` (w
   stay numeric, since a renumbering is visible from inside the file being edited. The inline
   `@ref[...]` examples in those documents live in fences, which is itself a test of fence
   exclusion.
+- **Coverage floor**: CI runs `cargo llvm-cov` and fails under 85% workspace lines or 60% on any
+  single file. Both ratchet upward as gaps close; neither is satisfiable by a test that asserts
+  nothing, which is why coverage rather than a per-file test mandate enforces sufficiency.
 - **Security gates in CI**: `cargo deny check`, `cargo audit`, `cargo clippy -D warnings`,
   `cargo test`, plus `cargo build --release` size check for the binary (grammar bundle budget).
 
