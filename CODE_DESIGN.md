@@ -967,7 +967,13 @@ Refinements the code made to the design above, recorded so the document stays th
    the stdio threads are joined; the writer thread does not exit otherwise.
 9. **npm**: @ref[scripts/src/npm/build-packages.mjs] builds `@context-anchors/<os>-<cpu>` packages
    (static musl on Linux) plus the `context-anchors` shim from cargo-dist's manifest, published
-   by @ref[.github/workflows/publish-npm.yml] as a dist custom publish job.
+   by @ref[.github/workflows/publish-npm.yml] as a dist custom publish job. That workflow's three
+   jobs share the index written by @ref[scripts/src/npm/packages-index.mjs]:
+   @ref[scripts/src/npm/verify-packages.mjs] installs the packed tarballs on a runner per platform
+   and @ref[scripts/src/npm/publish-packages.mjs] publishes them, shim last and skipping versions
+   already on the registry. Orchestration lives in these scripts rather than in the workflow
+   because npm reads a bare `owner/repo`-shaped argument as a git shorthand — the bug that stopped
+   the 0.0.1 shim publishing — and because the verification has to run on Windows too.
 10. **A narrow `catch_unwind` guards pulldown-cmark.** Fuzzing found that its offset iterator
     panics on some malformed documents (pulldown-cmark/pulldown-cmark#1129, open upstream).
     §10's rule against catching panics around per-file work still holds for our own code: the

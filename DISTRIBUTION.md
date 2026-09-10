@@ -32,9 +32,9 @@ distinction in @ref[#design/deferred], and the name should not undercut the desi
   packages in §4 publish under. Scope availability is confirmed at creation.
 - Create a granular automation token with publish rights on that scope and on the unscoped
   `context-anchors` name, bypass-2FA enabled, and store it as the `NPM_TOKEN` Actions secret.
-  A granular token can only select packages that already exist, so until 0.0.1 has claimed the
-  names it has to be an all-packages token. It is a bootstrap credential and is deleted once the
-  names exist — see @ref[#dist/publishing-credentials].
+  A granular token can only select packages that already exist, and the unscoped `context-anchors`
+  name is unpublished until 0.0.2, so it has to be an all-packages token. It is a bootstrap
+  credential, deleted once every name exists — see @ref[#dist/publishing-credentials].
 - crates.io is not published and `anchr` is not reserved on either registry. Both are decisions,
   not oversights: see §4 and §8.
 
@@ -159,7 +159,7 @@ Once `anchr lsp` exists, Neovim, Helix, and Zed users wire it up in a few lines 
 configuration for free. Only VS Code requires an extension to speak to a generic LSP server. Ship
 the subcommand in v1.1; let the extension wait for demand.
 
-### Release procedure (0.0.1)
+### Release procedure
 <!-- @anchor[dist/release-procedure] -->
 
 The version in @ref[Cargo.toml] is the source of truth; dist refuses a tag that disagrees with it.
@@ -167,12 +167,25 @@ A release is a `v<version>` tag pushed to `main`, which runs @ref[.github/workfl
 in this order: `plan` (validates the tag against the version and lists every artifact),
 `build-local-artifacts` (one runner per target), `build-global-artifacts` (installer scripts and
 the manifest), `host` (creates the GitHub Release; from here the release is public),
-`custom-publish-npm` (platform packages first, then the shim, with provenance), `announce`
-(a barrier, green only if everything landed). Two consequences: a failed npm publish leaves a real
-GitHub Release with no npm package, fixed by re-running that job; and a tag dist has hosted cannot
-be reused, which is why `0.0.1` is a throwaway that exercises the pipeline and claims the names.
+`custom-publish-npm` (build and pack, verify on one runner per platform package, then publish the
+platform packages before the shim, with provenance), `announce` (a barrier, green only if everything
+landed).
 
-`0.0.1` is tagged by hand. A follow-up will release on a version bump instead: cargo-dist's
+`host` runs before any publishing, so a verify failure still leaves a public GitHub Release with no
+npm packages. Recovering from a failed publish means **re-running all jobs, not just the failed
+one**: a new attempt clears the run's artifacts, so the publish job alone would find neither the
+packed tarballs nor the platform archives. Re-running everything is safe because publishing skips
+any version already on the registry.
+
+What a re-run cannot do is pick up a fix, because it replays the workflow **as of the tagged
+commit**. 0.0.1 proved it. `npm publish npm-dist/context-anchors` was read by npm as a GitHub
+`owner/repo` shorthand rather than a directory — the platform loop escaped the same bug only
+because its glob ends in a slash — so five platform packages published and the shim did not. npm
+versions are consumed permanently, so the recovery was 0.0.2, not a retry. The five orphaned 0.0.1
+packages are deprecated; nothing could resolve them without a shim at that version.
+
+Releases are tagged by hand, and a `v<version>-rc.N` prerelease rehearses one first: real archives,
+real registry, real provenance, published under the `next` tag so it never claims `latest`. A follow-up will release on a version bump instead: cargo-dist's
 `dispatch-releases` replaces the tag-push trigger with `workflow_dispatch` (input `tag`) and the
 release run creates the tag itself through `gh release create --target`, so a job on push to
 `main` only has to read the version and dispatch when no matching release exists. A tag pushed
@@ -187,11 +200,12 @@ fails its stale-CI check.
 
 npm trusted publishing (OIDC, generally available since July 2025) replaces `NPM_TOKEN` with
 short-lived credentials minted per workflow run, and publishes provenance on its own — the
-`--provenance` flag becomes redundant. It cannot be used for 0.0.1: a trusted publisher can only
-be configured on a package that already exists, and all six are new. Claiming the names with a
-token is therefore part of what 0.0.1 is for.
+`--provenance` flag becomes redundant. It could not be used for 0.0.1: a trusted publisher can only
+be configured on a package that already exists, and all six were new. Claiming the names with a
+token is therefore what 0.0.1 and 0.0.2 are for — five scoped names exist as of 0.0.1, and the
+unscoped shim only from 0.0.2.
 
-Once they exist, configure a trusted publisher on each of the six, drop `--provenance` from
+Once all six exist, configure a trusted publisher on each, drop `--provenance` from
 @ref[.github/workflows/publish-npm.yml], and delete the secret. Two details decide whether it
 works: npm validates the *calling* workflow, so the file to configure is
 @ref[.github/workflows/release.yml] rather than the reusable one that holds `npm publish`; and
