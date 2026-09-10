@@ -9,6 +9,8 @@ import {
   PLATFORMS,
   findArchiveName,
   findFile,
+  manifestMetadata,
+  parsePackOutput,
   platformPackageJson,
   readme,
   shimPackageJson,
@@ -101,4 +103,42 @@ test("findFile locates a nested match and reports absence as null", () => {
 
   assert.equal(findFile(base, "anchr"), join(base, "a", "b", "anchr"));
   assert.equal(findFile(base, "missing"), null);
+});
+
+// npm normalises a manifest only when publishing a directory. We publish tarballs, so the fields
+// it used to add on the way in — the structured repository, the bugs link, the homepage — have to
+// be written out here or the package pages regress.
+test("both packages carry the metadata npm no longer fills in for us", () => {
+  const shim = shimPackageJson("0.0.1", []);
+  const platform = platformPackageJson("0.0.1", PLATFORMS["aarch64-apple-darwin"]);
+  for (const packageJson of [shim, platform]) {
+    assert.deepEqual(packageJson.repository, {
+      type: "git",
+      url: "git+https://github.com/Arkorri/context-anchors.git",
+    });
+    assert.equal(packageJson.bugs.url, "https://github.com/Arkorri/context-anchors/issues");
+    assert.equal(packageJson.homepage, "https://github.com/Arkorri/context-anchors#readme");
+    assert.equal(packageJson.license, "MIT OR Apache-2.0");
+  }
+  assert.equal(manifestMetadata().repository.type, "git");
+});
+
+// The repository constant is also interpolated into prose, where an object would render as
+// [object Object].
+test("the repository url stays a plain string wherever it is interpolated", () => {
+  assert.match(readme(), /https:\/\/github\.com\/Arkorri\/context-anchors/);
+  assert.doesNotMatch(readme(), /\[object Object\]/);
+  assert.doesNotMatch(shimSource(), /\[object Object\]/);
+});
+
+// The tarball name comes from npm rather than being reconstructed; guessing its naming rules is
+// the same bet that lost the shim publish at 0.0.1.
+test("the packed filename is read back out of npm's json, notices and all", () => {
+  assert.equal(parsePackOutput('[{"filename":"context-anchors-0.0.1.tgz"}]')[0].filename,
+    "context-anchors-0.0.1.tgz");
+  assert.equal(
+    parsePackOutput('npm notice something\n[{"filename":"a.tgz"}]\n')[0].filename,
+    "a.tgz",
+  );
+  assert.throws(() => parsePackOutput("npm error boom"), /produced no JSON/);
 });

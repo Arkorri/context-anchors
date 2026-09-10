@@ -2,6 +2,26 @@
 
 Notable changes to `context-anchors`. This project follows [semantic versioning](https://semver.org).
 
+## [0.0.2] - 2026-09-09
+
+A packaging release. The tool itself is unchanged from 0.0.1.
+
+### Fixed
+
+- `npm install context-anchors` now works. At 0.0.1 the shim package never reached the registry:
+  the release workflow ran `npm publish npm-dist/context-anchors`, and npm resolved that bare
+  `owner/repo`-shaped argument as a GitHub shorthand rather than a directory. Only the five
+  `@context-anchors/*` platform packages were published, and without the shim nothing could resolve
+  them. Those 0.0.1 packages are orphaned and deprecated — use 0.0.2 or later.
+- Published packages carry `repository`, `bugs` and `homepage` again. npm only fills those in when
+  publishing a directory, and releases now publish packed tarballs.
+
+### Changed
+
+- Publishing is gated on a per-platform check that installs the packed tarballs and runs the binary
+  on macOS (Apple Silicon and Intel), Linux (x64 and arm64) and Windows before any package is
+  published, and it is idempotent, so an interrupted release can be re-run without a version bump.
+
 ## [0.0.1] - 2026-09-09
 
 First published release. The commands below work, but this version exists mainly to exercise the

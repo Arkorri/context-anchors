@@ -10,7 +10,10 @@
 // offline, and with lockfile integrity, which cargo-dist's own npm installer does not.
 //
 //   node scripts/src/npm/build-packages.mjs --manifest dist-manifest.json \
-//        --artifacts target/distrib --out npm-dist [--only-available]
+//        --artifacts target/distrib --out npm-dist [--only-available] [--pack]
+//
+// --pack also packs each package to <out>/tarballs and writes the packages.json index that verify
+// and publish consume; see @noref[scripts/src/npm/packages-index.mjs].
 
 import { execFileSync } from "node:child_process";
 import {
@@ -30,6 +33,7 @@ import { join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 
 import { repoRoot } from "../repo-root.mjs";
+import { INDEX_FILE, digestOf, npmInvocation } from "./packages-index.mjs";
 import { parseArgs } from "node:util";
 
 const SCOPE = "@context-anchors";
@@ -39,6 +43,18 @@ const REPOSITORY = "https://github.com/Arkorri/context-anchors";
 const LICENSE = "MIT OR Apache-2.0";
 const LICENSE_FILES = ["LICENSE-MIT", "LICENSE-APACHE"];
 const REPO_ROOT = repoRoot(import.meta.url);
+
+// npm normalises a manifest only when publishing a *directory*; we publish tarballs, so anything it
+// used to correct on the way in is ours to emit. At 0.0.1 that silently added the structured
+// repository, the bugs link and the homepage.
+function manifestMetadata() {
+  return {
+    repository: { type: "git", url: `git+${REPOSITORY}.git` },
+    bugs: { url: `${REPOSITORY}/issues` },
+    homepage: `${REPOSITORY}#readme`,
+    license: LICENSE,
+  };
+}
 
 function copyLicenses(packageDir) {
   for (const file of LICENSE_FILES) {
@@ -76,8 +92,7 @@ function platformPackageJson(version, platform) {
     name: `${SCOPE}/${platform.os}-${platform.cpu}`,
     version,
     description: `${BIN} binary for ${platform.os}-${platform.cpu}; installed by the ${SHIM_NAME} package`,
-    repository: REPOSITORY,
-    license: LICENSE,
+    ...manifestMetadata(),
     os: [platform.os],
     cpu: [platform.cpu],
     files: ["bin", ...LICENSE_FILES],
@@ -92,8 +107,7 @@ function shimPackageJson(version, built) {
     version,
     description:
       "anchr: a compiler-style checker for @anchor/@ref markers in docs, agent context files, and code comments",
-    repository: REPOSITORY,
-    license: LICENSE,
+    ...manifestMetadata(),
     bin: { [BIN]: `bin/${BIN}.js` },
     files: ["bin", "README.md", ...LICENSE_FILES],
     engines: { node: ">=18" },
@@ -108,6 +122,7 @@ function main() {
       artifacts: { type: "string" },
       out: { type: "string" },
       "only-available": { type: "boolean", default: false },
+      pack: { type: "boolean", default: false },
     },
   });
   for (const required of ["manifest", "artifacts", "out"]) {
@@ -130,6 +145,7 @@ function main() {
   mkdirSync(args.out, { recursive: true });
 
   const built = [];
+  const packages = [];
   for (const [triple, platform] of Object.entries(PLATFORMS)) {
     const archiveName = findArchiveName(manifest, triple);
     const archivePath = archiveName ? join(args.artifacts, archiveName) : null;
@@ -156,6 +172,7 @@ function main() {
     const packageJson = platformPackageJson(version, platform);
     writeJson(join(dir, "package.json"), packageJson);
     built.push(packageJson.name);
+    packages.push({ name: packageJson.name, platform: `${platform.os}-${platform.cpu}`, dir });
     console.log(`built ${packageJson.name}`);
   }
 
@@ -165,7 +182,22 @@ function main() {
   writeFileSync(join(shimDir, "README.md"), readme());
   copyLicenses(shimDir);
   writeJson(join(shimDir, "package.json"), shimPackageJson(version, built));
+  packages.push({ name: SHIM_NAME, shim: true, dir: shimDir });
   console.log(`built ${SHIM_NAME} with ${built.length} platform packages`);
+
+  if (args.pack) {
+    const destination = resolve(args.out, "tarballs");
+    mkdirSync(destination, { recursive: true });
+    const entries = packages.map(({ name, platform, shim, dir }) => {
+      const filename = packPackage(resolve(dir), destination);
+      const sha256 = digestOf(readFileSync(join(destination, filename)));
+      return shim
+        ? { name, shim: true, tarball: `tarballs/${filename}`, sha256 }
+        : { name, platform, tarball: `tarballs/${filename}`, sha256 };
+    });
+    writeJson(join(args.out, INDEX_FILE), { version, packages: entries });
+    console.log(`packed ${entries.length} tarballs and wrote ${INDEX_FILE}`);
+  }
 }
 
 // Only the CLI invocation runs; importing the module for tests must not touch the filesystem.
@@ -177,12 +209,40 @@ export {
   PLATFORMS,
   findArchiveName,
   findFile,
+  manifestMetadata,
+  parsePackOutput,
   platformPackageJson,
   readme,
   shimPackageJson,
   shimSource,
   versionOf,
 };
+
+/// `npm pack foo/bar` resolves as a GitHub shorthand rather than a folder, so pass no spec at all
+/// and let `cwd` select the package. The filename comes from npm rather than being reconstructed —
+/// guessing npm's naming rules is the same bet that lost the shim publish at 0.0.1.
+function packPackage(packageDir, destination) {
+  const { file, args } = npmInvocation(process.platform, [
+    "pack",
+    "--json",
+    "--ignore-scripts",
+    "--pack-destination",
+    destination,
+  ]);
+  const output = execFileSync(file, args, { cwd: packageDir, encoding: "utf8" });
+  const filename = parsePackOutput(output)?.[0]?.filename;
+  if (!filename) throw new Error(`npm pack reported no filename for ${packageDir}`);
+  return filename;
+}
+
+/// npm has been known to precede its JSON with notices; keep the raw text in the error so a
+/// surprise is readable rather than a bare SyntaxError.
+function parsePackOutput(output) {
+  const start = output.indexOf("[");
+  const end = output.lastIndexOf("]");
+  if (start === -1 || end === -1) throw new Error(`npm pack --json produced no JSON:\n${output}`);
+  return JSON.parse(output.slice(start, end + 1));
+}
 
 function extractBinary(archivePath, binaryName) {
   const scratch = mkdtempSync(join(tmpdir(), "anchr-npm-"));

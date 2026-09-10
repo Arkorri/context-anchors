@@ -1,7 +1,16 @@
-# Called by the cargo-dist release workflow (see `publish-jobs` in dist-workspace.toml) after
-# every platform archive has been built and uploaded. Builds the platform packages and the
-# shim from the manifest, smoke-tests the shim against the Linux x64 package, then publishes
-# platform packages first so the shim's optionalDependencies resolve.
+# Called by the cargo-dist release workflow (see `publish-jobs` in dist-workspace.toml) after every
+# platform archive has been built and uploaded.
+#
+# Three jobs rather than one. `verify` runs on a real runner per platform package and `publish`
+# needs it, so a platform that cannot even run its own binary blocks all six publishes instead of
+# being discovered afterwards — npm versions are consumed permanently, so everything catchable has
+# to be caught before the first publish.
+#
+# What travels between the jobs is the packed tarballs, not the built directory tree:
+# actions/upload-artifact zips its payload and zip does not carry the executable bit. The platform
+# binary is not a declared `bin` entry, so npm never chmods it on install, and a mode lost in
+# transit would reach users as EACCES.
+
 name: publish npm
 
 on:
@@ -11,44 +20,110 @@ on:
         required: true
         type: string
 
+concurrency:
+  group: publish-npm-${{ github.ref }}
+  # Cancelling partway through the publish loop is how a partial publish gets made.
+  cancel-in-progress: false
+
+defaults:
+  run:
+    shell: bash
+
 jobs:
-  npm:
-    runs-on: ubuntu-latest
+  build:
+    name: build and pack
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
     permissions:
       contents: read
-      id-token: write
+    outputs:
+      version: ${{ steps.index.outputs.version }}
     env:
       PLAN: ${{ inputs.plan }}
     steps:
-      - uses: actions/checkout@v6
+      - uses: actions/checkout@v7
+      - uses: actions/setup-node@v7
+        with:
+          node-version: 22
       - name: Fetch built artifacts
         uses: actions/download-artifact@v8
         with:
           pattern: artifacts-*
           path: target/distrib/
           merge-multiple: true
-      - uses: actions/setup-node@v4
-        with:
-          node-version: 20
-          registry-url: https://registry.npmjs.org
-      - name: Build packages
+      - name: Build and pack
         run: |
           printf '%s' "$PLAN" > dist-plan.json
-          node scripts/src/npm/build-packages.mjs --manifest dist-plan.json --artifacts target/distrib --out npm-dist
-      - name: Smoke-test the shim
-        run: |
-          cd npm-dist/context-anchors
-          npm install --no-save --ignore-scripts ../@context-anchors/linux-x64
-          node bin/anchr.js --version
-          node bin/anchr.js --help
-      - name: Publish platform packages
-        env:
+          node scripts/src/npm/build-packages.mjs \
+            --manifest dist-plan.json --artifacts target/distrib --out npm-dist --pack
+      - id: index
+        run: echo "version=$(node -p "require('./npm-dist/packages.json').version")" >> "$GITHUB_OUTPUT"
+      - uses: actions/upload-artifact@v7
+        with:
+          name: npm-packages
+          path: |
+            npm-dist/packages.json
+            npm-dist/tarballs
+          if-no-files-found: error
+          overwrite: true
+
+  verify:
+    name: verify ${{ matrix.platform }}
+    needs: build
+    runs-on: ${{ matrix.runner }}
+    timeout-minutes: 15
+    permissions:
+      contents: read
+    strategy:
+      # One release attempt should reveal every broken platform, not just the first.
+      fail-fast: false
+      matrix:
+        include:
+          - { runner: macos-15, platform: darwin-arm64 }
+          - { runner: macos-15-intel, platform: darwin-x64 }
+          - { runner: ubuntu-24.04, platform: linux-x64 }
+          - { runner: ubuntu-24.04-arm, platform: linux-arm64 }
+          - { runner: windows-2022, platform: win32-x64 }
+    steps:
+      - uses: actions/checkout@v7
+      # No registry-url here: it writes an .npmrc referencing a token this job does not have.
+      - uses: actions/setup-node@v7
+        with:
+          node-version: 22
+      - uses: actions/download-artifact@v8
+        with:
+          name: npm-packages
+          path: npm-dist
+      - run: |
+          node scripts/src/npm/verify-packages.mjs \
+            --dir npm-dist \
+            --platform ${{ matrix.platform }} \
+            --expect-version ${{ needs.build.outputs.version }}
+
+  publish:
+    name: publish to npm
+    # Plain `needs` and no `if:` — the surrounding generated workflow uses `always()` liberally and
+    # copying it here would quietly disable the gate.
+    needs: [build, verify]
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    permissions:
+      contents: read
+      id-token: write
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-node@v7
+        with:
+          node-version: 22
+          registry-url: https://registry.npmjs.org
+      - uses: actions/download-artifact@v8
+        with:
+          name: npm-packages
+          path: npm-dist
+      - env:
           NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
         run: |
-          for package in npm-dist/@context-anchors/*/; do
-            npm publish "$package" --access public --provenance
-          done
-      - name: Publish shim
-        env:
-          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
-        run: npm publish npm-dist/context-anchors --access public --provenance
+          node scripts/src/npm/publish-packages.mjs \
+            --dir npm-dist \
+            --expect-version ${{ needs.build.outputs.version }} \
+            --provenance
