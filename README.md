@@ -1,23 +1,17 @@
 # context-anchors
 
-`anchr` brings compiler semantics to the prose that agentic coding runs on. `CLAUDE.md`,
-`AGENTS.md`, skills, design docs, and code comments are full of references to files, functions,
-and sections of other documents, and nothing checks them. They rot silently, and an agent that
-follows a dead reference tends to conclude the target does not exist rather than that it moved.
+[![CI](https://github.com/Arkorri/context-anchors/actions/workflows/ci.yml/badge.svg)](https://github.com/Arkorri/context-anchors/actions/workflows/ci.yml)
+[![npm](https://img.shields.io/npm/v/context-anchors)](https://www.npmjs.com/package/context-anchors)
 
-Two opt-in markers make those references explicit and checkable:
+**Your docs point at your code. `anchr` tells you when they stop matching.**
 
-```text
-@anchor[some-id]     declares a stable identity at this line
-@ref[target]         asserts that the target exists
-@ref[target as X]    the same, and names the target X for this file
-@[X]                 a use of that name; every mention is checked
-```
+Design docs, READMEs, and code comments are full of references to files, functions, and sections
+of other documents. Rename a function, and every mention of it in prose quietly goes stale.
+Nothing fails and nothing warns you — you find out when someone follows a reference to something
+that is no longer there.
 
-`anchr check` resolves every reference in a root and fails when one does not resolve, grouping
-the report by cause so that renaming one anchor with twelve live references is one error that
-lists twelve sites. What it could not verify (a missing external root, a language it has no
-grammar for) is reported as *unverified*, never silently passed.
+`anchr` makes those references checkable. You mark one, and it fails the day it stops resolving,
+the same way a compiler catches a call to a function you deleted.
 
 ```text
 error: unknown anchor id `auth/flow` in root `repo`
@@ -30,52 +24,69 @@ error: unknown anchor id `auth/flow` in root `repo`
 help: did you mean `auth/token-refresh`?
 ```
 
+One rename with twelve live references is a single error listing twelve places to fix, not twelve
+separate errors to wade through.
+
 ## Install
 
-Prebuilt binaries for macOS, Linux, and Windows are attached to each GitHub release.
+```sh
+npm install --save-dev context-anchors
+```
+
+This pins the checker in your lockfile, so every developer and every CI run uses the same version.
+You get a prebuilt native binary, chosen for your platform at install time — there is no
+postinstall download, so it works offline and under `--ignore-scripts`.
+
+Use `npm ci` to install. Rebuilding a lockfile on top of an existing `node_modules` can record
+only your own platform's binary (npm/cli#4828), leaving teammates on other machines without one.
+If that happens, `anchr` tells you which package is missing.
+
+Don't have Node? These put a standalone binary on your `PATH`, with no Node involved at all:
 
 ```sh
-# shell installer (macOS, Linux)
+# macOS, Linux
 curl --proto '=https' --tlsv1.2 -LsSf \
   https://github.com/Arkorri/context-anchors/releases/latest/download/context-anchors-installer.sh | sh
 
-# powershell installer (Windows)
+# Windows
 powershell -ExecutionPolicy Bypass -c "irm https://github.com/Arkorri/context-anchors/releases/latest/download/context-anchors-installer.ps1 | iex"
-
-# npm: a native binary via a platform-specific optional dependency, no postinstall download
-npx context-anchors check
-
-# from source
-cargo install --git https://github.com/Arkorri/context-anchors context-anchors
 ```
 
-Adding `context-anchors` to `package.json` pins the checker, so every developer and CI run gates
-commits with the same one. Install it with `npm ci`: regenerating a lockfile on top of an existing
-`node_modules` can record only your own platform's binary package (npm/cli#4828), which leaves
-teammates on other platforms without one. If that happens, `anchr` names the package that is
-missing and points at the shell installer.
+Binaries for every supported platform are attached to each GitHub release, or you can build from
+source with `cargo install --git https://github.com/Arkorri/context-anchors context-anchors`.
 
-## Use
+## Quick start
 
 ```sh
-anchr init                 # writes anchr.toml and ANCHR.md (the marker guide for agents)
-anchr init --agent claude  # also wires a Claude Code PostToolUse hook that runs the check
-anchr check                # exit 0 clean, 1 broken references, 2 tool failure
-anchr check --format json  # stable machine-readable report
-anchr check --strict       # unverified findings fail too
-anchr backrefs '#auth/flow'         # every reference to a target
-anchr rename auth/flow auth/session # rewrite an anchor id everywhere (--dry-run to preview)
-anchr coverage             # reference-shaped strings that carry no marker; never fails
-anchr annotate --write     # add @ref markers where the target resolves
-anchr lsp                  # language server for any LSP-capable editor
+anchr init     # writes a config file and a short guide to the markers
+anchr check    # exit 0 clean, 1 broken references, 2 something went wrong
 ```
 
-The language server speaks stdio. Point your editor's generic LSP client at `anchr lsp` for
-Markdown and the supported source languages to get diagnostics, go-to-definition on `@ref[...]`
-and `@[...]`, find-references and rename on anchors and aliases, and anchors and alias
-declarations as document symbols.
+`anchr init` creates @ref[anchr.toml] at the top of your project. That directory becomes your
+**root**: the tree anchr reads, and the boundary references resolve inside.
 
-Targets a reference can name:
+Now add a reference to a document. This one says the file must exist:
+
+```markdown
+The parser lives in @ref[src/parse.rs].
+```
+
+Delete or move that file and `anchr check` fails, naming every document that mentioned it.
+
+Run it in CI the same way you run a linter, and a broken reference fails the build.
+
+## Writing markers
+
+Four markers, all opt-in — anchr only checks what you mark.
+
+```text
+@anchor[some-id]     gives this line a stable name
+@ref[target]         asserts the target exists
+@ref[target as X]    the same, and names the target X for this file
+@[X]                 a use of that name; every mention is checked
+```
+
+A reference can point at any of these:
 <!-- @noref[src/file.ts, ./sibling.md] -->
 
 | Form | Meaning |
@@ -83,44 +94,72 @@ Targets a reference can name:
 | `src/dir/` | a directory exists |
 | `src/file.ts` | a file exists |
 | `src/file.ts#Name` | a declaration named `Name` exists in that file (Rust, TypeScript, JavaScript, Python, Go) |
-| `./sibling.md`, `../lib/x.ts#Name` | the same forms, resolved from the directory of the file the reference is in |
-| `#some-id` | an anchor with that id exists in this root |
-| `claude:#some-id` | an anchor exists in the external root named `claude` |
+| `./sibling.md`, `../lib/x.ts#Name` | the same forms, resolved from the folder of the file the reference is in |
+| `#some-id` | an `@anchor` with that id exists somewhere in your root |
+| `specs:#some-id` | an anchor exists in a separate root you configured, here named `specs` |
 
-A file that mentions one target many times declares it once and uses a short local name:
+`@anchor` is what you use when the thing you want to point at isn't a file or a function — a
+section of a design doc, a step in a checklist, a paragraph someone else's notes depend on.
+
+Markers work in Markdown prose, in code comments, and in `.txt` files. Inside code fences and
+backticks they are ignored, so you can write about them without triggering them.
+
+### Naming a target once
+
+A document that mentions the same thing repeatedly can declare it once, at the top, and then use a
+short name:
 
 ```markdown
 <!-- refs -->
 @ref[src/file.ts#Name as Name]
-@noref[src/legacy/, example.ts]
 
-@[Name] is checked at every mention; renaming it in code is one edit per file.
+@[Name] is checked at every mention, and renaming it in code is one edit per file.
 ```
 
-`@noref` lists strings that look like references in this file and are not, such as example paths;
-`anchr coverage` stops proposing them and reports any entry that no longer matches anything.
-Entries are globs matched against the whole string, so `src/**` covers a subtree and `src/` only
-the word itself; `[ignore] tokens` in @ref[anchr.toml] takes the same entries root-wide, and
-`[ignore] paths` lists files anchr never looks at, in gitignore syntax. A string looks like a
-reference when it ends in `/` or is `name.ext` with an extension GitHub Linguist lists or a file
-in the repository carries; a glob such as `src/*` is proposed as `src/`.
-A backticked code symbol on its own never does: a name has no single referent, so declare it
-once with `as` and every use in the file is proposed.
+### Silencing false positives
 
-Markers are recognised in Markdown prose (outside code fences and inline code), in source code
-comments (outside backtick spans), and in `.txt` files. Configuration lives in @ref[anchr.toml];
-`anchr init` writes one with every option documented.
+`anchr coverage` points out strings that look like references but carry no marker. When one is
+genuinely just an example, list it in `@noref` and it stops being suggested:
 
-## Design
+```markdown
+@noref[src/legacy/, example.ts]
+```
 
-- @ref[DESIGN.md] — what the tool is and the guarantees it makes
-- @ref[DISTRIBUTION.md] — how it ships
-- @ref[CODE_DESIGN.md] — how the code is shaped, and every place it deviates from the two above
-- @ref[docs/design/aliases.md] — file-scoped alias imports, so a reference is declared once per
-  file and used by a short local name
-- @ref[docs/design/ignores.md] — `@noref` and `[ignore]`: which paths anchr looks at, and which
-  strings it never proposes
-- @ref[docs/research/] — the crate survey, security checklist digest, and design review behind it
+Entries are globs matched against the whole string, so `src/**` covers a subtree while `src/`
+covers only that exact word. To silence something everywhere instead of in one file, put it under
+`[ignore] tokens` in @ref[anchr.toml].
+
+## Commands
+
+```sh
+anchr check                          # resolve every reference; fails if one is broken
+anchr check --format json            # the same report, machine-readable
+anchr check --strict                 # also fail on what couldn't be verified
+anchr backrefs '#auth/flow'          # list everything pointing at a target
+anchr rename auth/flow auth/session  # rename an anchor everywhere (--dry-run to preview)
+anchr coverage                       # suggest references you haven't marked; never fails
+anchr annotate --write               # add @ref markers where the target already resolves
+anchr lsp                            # language server, for editors
+```
+
+Anything anchr could not verify — a language it has no parser for, a root it cannot reach — is
+reported as **unverified** rather than quietly passing. Those don't fail the run unless you pass
+`--strict`.
+
+Installed as a devDependency, `anchr` is not on your `PATH`: prefix these with `npx`, or put them
+in a `package.json` script. The standalone installers and `npm install --global` give you the bare
+command.
+
+## Editor support
+
+`anchr lsp` speaks stdio, so point any editor's generic LSP client at it. You get live diagnostics,
+go-to-definition on `@ref[...]` and `@[...]`, find-references and rename on anchors and names, and
+a document outline of everything a file declares.
+
+## Configuration
+
+Everything lives in @ref[anchr.toml], which `anchr init` writes for you with every option
+documented — extra roots, which paths to skip, and which strings to never suggest.
 
 ## License
 
