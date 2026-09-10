@@ -39,12 +39,21 @@ Prebuilt binaries for macOS, Linux, and Windows are attached to each GitHub rele
 curl --proto '=https' --tlsv1.2 -LsSf \
   https://github.com/Arkorri/context-anchors/releases/latest/download/context-anchors-installer.sh | sh
 
+# powershell installer (Windows)
+powershell -ExecutionPolicy Bypass -c "irm https://github.com/Arkorri/context-anchors/releases/latest/download/context-anchors-installer.ps1 | iex"
+
 # npm: a native binary via a platform-specific optional dependency, no postinstall download
 npx context-anchors check
 
 # from source
 cargo install --git https://github.com/Arkorri/context-anchors context-anchors
 ```
+
+Adding `context-anchors` to `package.json` pins the checker, so every developer and CI run gates
+commits with the same one. Install it with `npm ci`: regenerating a lockfile on top of an existing
+`node_modules` can record only your own platform's binary package (npm/cli#4828), which leaves
+teammates on other platforms without one. If that happens, `anchr` names the package that is
+missing and points at the shell installer.
 
 ## Use
 

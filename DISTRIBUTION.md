@@ -32,6 +32,9 @@ distinction in @ref[#design/deferred], and the name should not undercut the desi
   packages in §4 publish under. Scope availability is confirmed at creation.
 - Create a granular automation token with publish rights on that scope and on the unscoped
   `context-anchors` name, bypass-2FA enabled, and store it as the `NPM_TOKEN` Actions secret.
+  A granular token can only select packages that already exist, so until 0.0.1 has claimed the
+  names it has to be an all-packages token. It is a bootstrap credential and is deleted once the
+  names exist — see @ref[#dist/publishing-credentials].
 - crates.io is not published and `anchr` is not reserved on either registry. Both are decisions,
   not oversights: see §4 and §8.
 
@@ -113,6 +116,13 @@ Two things this buys that a curl installer cannot:
 
 Node is required only to *resolve* the package, never to run the tool. The binary is native.
 
+The pattern has one known failure worth documenting for users. npm has a long-standing bug
+(npm/cli#4828, still recurring as #8320) where regenerating a lockfile on top of an existing
+`node_modules` records only the current machine's platform package, so a teammate on another
+platform installs with none and npm reports no error. `npm ci` against a lockfile built from
+scratch is unaffected. The shim's failure message names the package that is missing and points
+at the shell installer precisely so this surfaces as an instruction rather than a stack trace.
+
 **3. The vendor-neutral integration layer**
 
 `anchr init`, a git pre-commit hook, and a CI action. Detailed in §5.
@@ -128,9 +138,19 @@ A repository with `.claude-plugin/marketplace.json`, kept deliberately thin — 
 **Homebrew** — cargo-dist already generates the formula; enabling a tap later is a config flip,
 not a project. The curl installer covers the same audience in the meantime.
 
-**crates.io** — not a discovery channel for CLIs; nobody browses it looking for dev tools. It
-earns its place only if the resolver core is later published as an embeddable *library*. Not
-published; revisit only if `anchr-core` ships as one.
+It is also the cheap answer to macOS trust, which is why it should be promoted ahead of code
+signing. The binaries are unsigned and un-notarised. `curl | sh` never notices, because curl
+sets no quarantine attribute and Gatekeeper only inspects quarantined files — but anyone who
+downloads a release archive in a browser gets one, and Gatekeeper then refuses to run it.
+Notarisation does not apply to Homebrew CLI formulae, so a tap closes that path for nothing,
+where a Developer ID costs $99 a year.
+
+**crates.io** — not a discovery channel for CLIs; nobody browses it looking for dev tools. That
+argues about discovery, though, and installation is a separate question: `cargo binstall
+context-anchors` is a real fetch path for the Rust-adjacent developers most likely to find this
+early, and dist already emits the binstall metadata. The honest cost is publishing two crates
+and keeping `anchr-core` versioned in lockstep with them for the sake of a channel whose users
+already have the shell installer. Deferred on that cost, not on the discovery argument.
 
 **MCP server** — see §5.
 
@@ -159,6 +179,28 @@ release run creates the tag itself through `gh release create --target`, so a jo
 with `GITHUB_TOKEN` fires nothing; `workflow_dispatch` from it is the documented exception. Any
 change to @ref[dist-workspace.toml] needs `dist generate` to refresh the workflow, or `dist plan`
 fails its stale-CI check.
+
+---
+
+### Publishing credentials
+<!-- @anchor[dist/publishing-credentials] -->
+
+npm trusted publishing (OIDC, generally available since July 2025) replaces `NPM_TOKEN` with
+short-lived credentials minted per workflow run, and publishes provenance on its own — the
+`--provenance` flag becomes redundant. It cannot be used for 0.0.1: a trusted publisher can only
+be configured on a package that already exists, and all six are new. Claiming the names with a
+token is therefore part of what 0.0.1 is for.
+
+Once they exist, configure a trusted publisher on each of the six, drop `--provenance` from
+@ref[.github/workflows/publish-npm.yml], and delete the secret. Two details decide whether it
+works: npm validates the *calling* workflow, so the file to configure is
+@ref[.github/workflows/release.yml] rather than the reusable one that holds `npm publish`; and
+`id-token: write` must be granted in both, which @ref[dist-workspace.toml] already does.
+
+This retires the sharpest edge in the pipeline. A token carries a scope that has to match six
+package names, one of which is unscoped and so sits in a different permission domain from the
+other five — a mismatch that surfaces only at the last publish step, after five versions are
+already spent.
 
 ---
 
@@ -245,3 +287,8 @@ permissive is the only sensible choice.
 4. **Does the CI action ship as a composite GitHub Action, or as documentation for calling the
    binary directly?** The action is friendlier; the documentation is portable to GitLab, Buildkite,
    and others.
+5. **When do the binaries get signed?** Unsigned survives while the curl installer and a Homebrew
+   tap are the recommended paths (§4). It stops surviving when a Windows MSI ships, or when
+   browser downloads become a common entry point. cargo-dist supports Apple notarisation and
+   Windows signing through SSL.com; the cost is annual certificates, so the trigger is 1.0 or the
+   first user report of a Gatekeeper block, whichever comes first.
