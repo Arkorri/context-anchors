@@ -602,7 +602,7 @@ are reported regardless of the filter because they affect the whole root).
 In milestone 1, @[Init] (@ref[crates/context-anchors/src/commands/init/init.rs]) is the only writing
 command. Rules: never overwrite an existing file without `--force`; `--dry-run` prints what would be
 written; every path written is printed. It writes @ref[anchr.toml] and an `AGENTS.md`-compatible
-instruction block. For `--agent claude` it merges a `PostToolUse` hook into @ref[.claude/settings.json]
+instruction block. For `--agent claude` it merges a `PostToolUse` hook into `.claude/settings.json`
 via a `serde_json::Value` read-modify-write that preserves every key it does not own, and refuses
 (with the exact JSON to paste) if that file is not valid JSON. Idempotent: running @[Init] twice is
 a no-op the second time. @ref[#cli/lsp], @[Backrefs], @[Rename], and @[Coverage] are v1.1

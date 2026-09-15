@@ -77,7 +77,7 @@ Fix: check the preceding `char` via `source[..start].chars().next_back()`. Keep 
 Add: CRLF files and `\r` inside a body; multi-byte text before a marker (offset and line/col); escaped `@ref\[x\]` in markdown is not lexed (the source-slice approach makes this a free escape hatch, worth documenting); fenced block inside blockquote and list item, tilde fence, longer closing fence, unclosed fence at EOF, indented code inside a nested list (the complement approach's only failure mode is an imprecise code range letting an example through); undeclared root ⇒ error versus absent ⇒ unverified; case-mismatched path; parse-error tree ⇒ unverified (finding 2); a human-output snapshot with color forced off; `PATHS` filtering semantics; a bad-config exit-2 snapshot with the caret rendering.
 
 **19. Should-fix. §5 `init`. Under-specified for a command that writes files.**
-It writes @ref[anchr.toml], instructions, and hook config. Hook config for Claude Code means merging into @ref[.claude/settings.json], a JSON document with existing content. No overwrite policy, no dry run, no idempotency rule.
+It writes @ref[anchr.toml], instructions, and hook config. Hook config for Claude Code means merging into `.claude/settings.json`, a JSON document with existing content. No overwrite policy, no dry run, no idempotency rule.
 Fix: never overwrite an existing file without `--force`; settings merge via `serde_json::Value` read-modify-write that preserves unknown keys; print every path written; `--dry-run`. Or defer hook writing to printing instructions, which is what @ref[DISTRIBUTION.md] §5 implies for non-Claude vendors anyway.
 
 **20. Nit. §3.5 / §6 / §8. `DashMap` and the parallelism story contradict each other.**

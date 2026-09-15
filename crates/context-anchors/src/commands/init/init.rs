@@ -136,7 +136,7 @@ fn verb_for(action: Action, dry_run: bool) -> &'static str {
     }
 }
 
-/// Merges the hook into @ref[.claude/settings.json] by read-modify-write on a JSON value, so
+/// Merges the hook into `.claude/settings.json` by read-modify-write on a JSON value, so
 /// every key the file already has is preserved. Additive, so `--force` is not required.
 fn plan_claude_settings(root: &Utf8Path) -> anyhow::Result<Planned> {
     let path = root.join(CLAUDE_SETTINGS_PATH);
