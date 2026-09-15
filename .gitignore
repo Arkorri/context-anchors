@@ -10,6 +10,9 @@ node_modules/
 # macOS
 .DS_Store
 
+# Claude Code local settings
+.claude/
+
 # fuzzing
 fuzz/target/
 fuzz/artifacts/
