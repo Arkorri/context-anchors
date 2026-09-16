@@ -1,6 +1,6 @@
 #!/usr/bin/env node
 // Builds the npm packages for one release from cargo-dist's manifest and archives:
-// @noref[bin/anchr.js, scripts/src/npm/build-packages.mjs]
+// @noref[bin/anchr.js, packages.json, scripts/src/npm/build-packages.mjs]
 //
 //   @context-anchors/<os>-<cpu>   one per platform, holding just the binary
 //   context-anchors               the shim: `bin/anchr.js` plus optionalDependencies on each
@@ -13,7 +13,7 @@
 //        --artifacts target/distrib --out npm-dist [--only-available] [--pack]
 //
 // --pack also packs each package to <out>/tarballs and writes the packages.json index that verify
-// and publish consume; see @noref[scripts/src/npm/packages-index.mjs].
+// and publish consume; see @ref[scripts/src/npm/packages-index.mjs].
 
 import { execFileSync } from "node:child_process";
 import {

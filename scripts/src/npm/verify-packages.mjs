@@ -1,6 +1,7 @@
 #!/usr/bin/env node
 // Gates publishing. Runs on one runner per platform package and exercises the packed tarballs the
 // way a registry install would, before any version is consumed.
+// @noref[scripts/src/npm/verify-packages.mjs]
 //
 //   node scripts/src/npm/verify-packages.mjs --dir npm-dist --platform darwin-arm64 \
 //        --expect-version 0.0.2 [--keep]

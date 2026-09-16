@@ -34,4 +34,3 @@ this file only says what is not done yet.
 - The integration-test `Fixture` struct is copied across @ref[crates/context-anchors/tests/cli.rs],
   @ref[crates/context-anchors/tests/coverage.rs], and @ref[crates/context-anchors/tests/tools.rs]
   with small differences.
-- `anchr coverage` reports 13 `@noref` entries under @ref[scripts/] that never match anything.

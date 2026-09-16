@@ -1,4 +1,3 @@
-// @noref[scripts/src/npm/verify-packages.mjs, bin/anchr.js]
 import assert from "node:assert/strict";
 import { test } from "node:test";
 

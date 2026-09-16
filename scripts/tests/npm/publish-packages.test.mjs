@@ -1,4 +1,3 @@
-// @noref[scripts/src/npm/publish-packages.mjs]
 import assert from "node:assert/strict";
 import { test } from "node:test";
 

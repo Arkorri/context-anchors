@@ -1,5 +1,6 @@
 #!/usr/bin/env node
 // Publishes the packed tarballs, platform packages first and the shim last.
+// @noref[scripts/src/npm/publish-packages.mjs]
 //
 //   node scripts/src/npm/publish-packages.mjs --dir npm-dist --expect-version 0.0.2
 //
