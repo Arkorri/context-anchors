@@ -263,3 +263,26 @@ fn newlines_in_a_message_never_reach_the_log_line() {
     assert_eq!(text.lines().count(), 1);
     assert!(text.contains("first%0Asecond"));
 }
+
+#[test]
+fn a_directory_that_does_not_exist_keeps_its_spelling() {
+    let missing = Utf8Path::new("/w/pkg/does-not-exist");
+    assert_eq!(canonical(missing), missing);
+}
+
+/// The workspace and the root may spell one directory differently; a symlinked temp dir is the
+/// everyday case on macOS. Containment must survive that.
+#[test]
+fn containment_is_decided_on_canonical_paths() {
+    let dir = tempfile::tempdir().unwrap();
+    let real = dunce::canonicalize(dir.path()).unwrap();
+    let real = Utf8PathBuf::from_path_buf(real).unwrap();
+    let spelled = Utf8PathBuf::from_path_buf(dir.path().to_path_buf()).unwrap();
+    let mut report = report(vec![diagnostic(
+        Severity::Error,
+        Locations::Sites(vec![site("docs/a.md", 1, 1)]),
+    )]);
+    report.root_dirs.insert(root(), spelled);
+    let lines = annotations(&report, real.as_str());
+    assert!(lines[0].contains("file=docs/a.md,"), "{}", lines[0]);
+}

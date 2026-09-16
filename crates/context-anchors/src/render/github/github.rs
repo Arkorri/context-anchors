@@ -3,12 +3,13 @@
 //! never a third contract: the title is the JSON code, the message is the kind's text. Every
 //! location is emitted; the log is the record, whatever the web UI truncates.
 
+use std::collections::BTreeMap;
 use std::io::Write;
 
 use anchr_core::diagnostic::{Diagnostic, Locations, Report, Severity};
-use anchr_core::root::FilePath;
+use anchr_core::root::{FilePath, RootName};
 use annotate_snippets::Renderer;
-use camino::Utf8Path;
+use camino::{Utf8Path, Utf8PathBuf};
 
 use super::{human, json};
 
@@ -34,11 +35,21 @@ fn write_with(
 
 /// One `::error` or `::warning` line per location, in report order. A location whose root lies
 /// outside the workspace cannot be attached to a file, so it is spelled out in the message.
+///
+/// Both sides of the containment test are canonicalised first: the workspace comes from an
+/// environment variable and the root from the process's working directory, and the two may
+/// spell one directory differently (a symlinked temp dir on macOS, a short name on Windows).
 fn write_annotations(
     out: &mut impl Write,
     report: &Report,
     workspace: &Utf8Path,
 ) -> std::io::Result<()> {
+    let workspace = canonical(workspace);
+    let root_dirs: BTreeMap<&RootName, Utf8PathBuf> = report
+        .root_dirs
+        .iter()
+        .map(|(root, dir)| (root, canonical(dir)))
+        .collect();
     for diagnostic in &report.diagnostics {
         let level = level(diagnostic.severity);
         let title = format!("title={}", escape_property(json::code(&diagnostic.kind)));
@@ -47,10 +58,9 @@ fn write_annotations(
             Locations::Sites(sites) => {
                 for site in sites {
                     let (line, col) = (site.line_col.line, site.line_col.col);
-                    let file = report
-                        .root_dirs
+                    let file = root_dirs
                         .get(&site.site.root)
-                        .and_then(|dir| workspace_relative(dir, workspace, &site.site.path));
+                        .and_then(|dir| workspace_relative(dir, &workspace, &site.site.path));
                     let line = match file {
                         Some(file) => command(
                             level,
@@ -77,10 +87,9 @@ fn write_annotations(
             }
             Locations::Files(files) => {
                 for file in files {
-                    let path = report
-                        .root_dirs
+                    let path = root_dirs
                         .get(&file.root)
-                        .and_then(|dir| workspace_relative(dir, workspace, &file.path));
+                        .and_then(|dir| workspace_relative(dir, &workspace, &file.path));
                     let line = match path {
                         Some(path) => command(
                             level,
@@ -131,6 +140,15 @@ fn message(diagnostic: &Diagnostic) -> String {
         message.push_str(&format!("; {hint}"));
     }
     message
+}
+
+/// The canonical spelling of a directory when it exists, and the given one otherwise, so a
+/// report built from an in-memory world still renders.
+fn canonical(dir: &Utf8Path) -> Utf8PathBuf {
+    dunce::canonicalize(dir)
+        .ok()
+        .and_then(|path| Utf8PathBuf::from_path_buf(path).ok())
+        .unwrap_or_else(|| dir.to_path_buf())
 }
 
 /// The path GitHub needs: `path` under `root_dir`, spelled relative to `workspace` with `/`
