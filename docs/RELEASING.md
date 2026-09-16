@@ -68,21 +68,29 @@ verification has to run on Windows too.
 - **Every ambiguous registry probe publishes.** Publishing something already published is a
   harmless 403; skipping something that is not published ships a shim whose optional dependency
   404s, which npm swallows silently and no later run would notice.
+- **An authentication failure consumes nothing.** If the first `npm publish` is refused, the
+  trusted publisher on npm is misconfigured (wrong workflow filename, `npm publish` not allowed);
+  fix it there and re-run all jobs. No version was spent.
 
 ## 4. Credentials
 <!-- @anchor[dist/publishing-credentials] -->
 
-Today: `NPM_TOKEN`, a granular automation token with publish rights on the `@context-anchors`
-scope and the unscoped name, bypass-2FA enabled, passed to `npm publish --provenance`. It had to be
-an all-packages token because a granular token can only select packages that already exist, and
-all six were new at 0.0.1. It is a bootstrap credential.
+There is no registry token. Each of the six packages has a trusted publisher, configured in its
+settings on the npm website, naming this repository and @[ReleaseWorkflow]: npm validates the
+*calling* workflow, not the reusable @[PublishWorkflow] that holds `npm publish`. The publish job
+exchanges its OIDC token (`id-token: write`, granted in both workflows) for a credential that lives
+as long as the run, and provenance is attached without `--provenance`. The repository URL that
+@ref[scripts/src/npm/build-packages.mjs] writes into every manifest must keep matching the GitHub
+repository, or npm refuses the publish.
 
-Next: npm trusted publishing (OIDC), which mints a short-lived credential per workflow run and
-publishes provenance on its own. It could not be used for the first release because a trusted
-publisher can only be configured on a package that already exists. Now that all six exist:
-configure a trusted publisher on each pointing at @[ReleaseWorkflow] (npm validates the *calling*
-workflow, not the reusable one that holds `npm publish`), drop `--provenance`, delete the secret.
-`id-token: write` is already granted in both workflows. Tracked in @ref[TODO.md].
+Trusted publishing needs npm 11.5.1 or later, which is why @[PublishWorkflow] runs Node 24. Each
+publisher allows direct `npm publish`; npm's default for new publishers is staged publishing, where
+CI stages and a maintainer approves each package with 2FA, and switching to it is a pipeline change
+tracked in @ref[TODO.md].
+
+A trusted publisher can only be configured on a package that already exists, so a *new* package
+needs a one-time bootstrap: publish it once with a granular automation token, configure its
+publisher, revoke the token. That is how all six were created at 0.0.1.
 
 ## 5. Editing the pipeline
 

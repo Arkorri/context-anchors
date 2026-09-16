@@ -1,7 +1,10 @@
 #!/usr/bin/env node
 // Publishes the packed tarballs, platform packages first and the shim last.
 //
-//   node scripts/src/npm/publish-packages.mjs --dir npm-dist --expect-version 0.0.2 --provenance
+//   node scripts/src/npm/publish-packages.mjs --dir npm-dist --expect-version 0.0.2
+//
+// Authentication is npm's business: in CI a trusted publisher turns the job's OIDC token into a
+// short-lived credential and attaches provenance, so there is no token and no `--provenance` here.
 //
 // Two invariants carry the safety here.
 //
@@ -46,10 +49,9 @@ export function packumentUrl(registry, name, version) {
   return `${registry.replace(/\/+$/, "")}/${name.replace("/", "%2F")}/${version}`;
 }
 
-export function publishArgs(spec, { provenance = false, dryRun = false, registry, tag } = {}) {
+export function publishArgs(spec, { dryRun = false, registry, tag } = {}) {
   if (!tag) throw new Error("publish needs an explicit dist-tag");
   const args = ["publish", assertPathSpec(spec), "--access", "public", "--tag", tag];
-  if (provenance) args.push("--provenance");
   if (dryRun) args.push("--dry-run");
   if (registry) args.push(`--registry=${registry}`);
   return args;
@@ -104,7 +106,6 @@ async function main() {
     options: {
       dir: { type: "string" },
       "expect-version": { type: "string" },
-      provenance: { type: "boolean", default: false },
       "dry-run": { type: "boolean", default: false },
       registry: { type: "string", default: DEFAULT_REGISTRY },
     },
@@ -115,11 +116,6 @@ async function main() {
       process.exit(2);
     }
   }
-  if (args.provenance && args["dry-run"]) {
-    console.error("--provenance needs a real publish; it cannot be combined with --dry-run");
-    process.exit(2);
-  }
-
   const version = args["expect-version"];
   let ordered;
   try {
@@ -145,7 +141,6 @@ async function main() {
       continue;
     }
     const outcome = publish(entry.tarball, {
-      provenance: args.provenance,
       dryRun: args["dry-run"],
       registry: args.registry,
       tag,
