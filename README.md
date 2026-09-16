@@ -44,6 +44,9 @@ If that happens, `anchr` tells you which package is missing.
 Don't have Node? These put a standalone binary on your `PATH`, with no Node involved at all:
 
 ```sh
+# Homebrew (macOS, Linux)
+brew install Arkorri/tap/context-anchors
+
 # macOS, Linux
 curl --proto '=https' --tlsv1.2 -LsSf \
   https://github.com/Arkorri/context-anchors/releases/latest/download/context-anchors-installer.sh | sh

@@ -22,8 +22,8 @@ refuses a tag that disagrees with it.
 2. Rehearse with a prerelease tag, `v<version>-rc.N`. It runs the whole pipeline for real: real
    archives, a real GitHub prerelease, real npm packages published under the `next` dist-tag so
    they never claim `latest`.
-3. Tag `v<version>` on `main` and push it. Tags are pushed by hand today; releasing on a version
-   bump is tracked in @ref[TODO.md].
+3. Tag `v<version>` on `main` and push it. Tags are pushed by hand, by choice; see Rejected
+   alternatives.
 
 ## 2. What runs
 
@@ -37,6 +37,7 @@ like a version. Jobs, in order:
 | `build-global-artifacts` | installer scripts and the manifest |
 | `host` | uploads and creates the GitHub Release. **From here the release is public.** |
 | `custom-publish-npm` | calls @[PublishWorkflow]; skipped for prereleases unless `publish-prereleases` is on (it is) |
+| `publish-homebrew-formula` | clones `Arkorri/homebrew-tap` with `HOMEBREW_TAP_TOKEN`, commits the formula that `build-global-artifacts` generated from the macOS and Linux archives, and pushes; gated like `custom-publish-npm`, so an rc replaces the formula until the stable tag lands |
 | `announce` | a barrier, green only if everything landed |
 
 @[PublishWorkflow] is three jobs rather than one, so a platform that cannot run its own binary
@@ -58,6 +59,10 @@ verification has to run on Windows too.
 
 - **A verify failure leaves a public GitHub Release with no npm packages.** `host` runs before any
   publishing. That is acceptable: the installers work, and npm is filled in by a re-run.
+- **A Homebrew publish failure leaves the release and npm intact.** The two publish jobs are
+  independent. An expired `HOMEBREW_TAP_TOKEN` is the likely cause; renew it and re-run all jobs.
+  If the formula had in fact been pushed, the re-run fails at its commit step with nothing to
+  commit, which means the tap is already current.
 - **Re-run all jobs, never just the failed one.** A new attempt clears the run's artifacts, so the
   publish job alone would find neither the tarballs nor the archives. Re-running everything is
   safe because publishing skips versions already on the registry.
@@ -75,7 +80,13 @@ verification has to run on Windows too.
 ## 4. Credentials
 <!-- @anchor[dist/publishing-credentials] -->
 
-There is no registry token. Each of the six packages has a trusted publisher, configured in its
+There is one long-lived credential, for the tap: `HOMEBREW_TAP_TOKEN` is a fine-grained personal
+access token with read and write access to the contents of `Arkorri/homebrew-tap` and nothing
+else, stored as a repository secret here, not on the tap. The publish job uses it to push the
+formula. It expires on the date chosen when it was created and is renewed by hand; the release
+workflow fails at `publish-homebrew-formula` when it lapses, with the release and npm unaffected.
+
+npm needs no token. Each of the six packages has a trusted publisher, configured in its
 settings on the npm website, naming this repository and @[ReleaseWorkflow]: npm validates the
 *calling* workflow, not the reusable @[PublishWorkflow] that holds `npm publish`. The publish job
 exchanges its OIDC token (`id-token: write`, granted in both workflows) for a credential that lives
@@ -85,8 +96,8 @@ repository, or npm refuses the publish.
 
 Trusted publishing needs npm 11.5.1 or later, which is why @[PublishWorkflow] runs Node 24. Each
 publisher allows direct `npm publish`; npm's default for new publishers is staged publishing, where
-CI stages and a maintainer approves each package with 2FA, and switching to it is a pipeline change
-tracked in @ref[TODO.md].
+CI stages and a maintainer approves each package with 2FA. It was considered and set aside; see
+Rejected alternatives.
 
 A trusted publisher can only be configured on a package that already exists, so a *new* package
 needs a one-time bootstrap: publish it once with a granular automation token, configure its
@@ -105,9 +116,12 @@ publisher, revoke the token. That is how all six were created at 0.0.1.
 
 ## Rejected alternatives
 
-- Tag-triggered releases over release-on-version-bump, for now: a tag pushed with `GITHUB_TOKEN`
-  fires nothing, so the bump flow needs cargo-dist's `dispatch-releases` mode, which is queued
-  work rather than a reason to keep tagging by hand.
+- Tag-triggered releases over release-on-version-bump: a tag pushed with `GITHUB_TOKEN` fires
+  nothing, so the bump flow needs cargo-dist's `dispatch-releases` mode, a second trigger path to
+  maintain in exchange for one hand-pushed tag per release.
+- Direct publish over npm's staged publishing: staging adds six 2FA approvals per release for a
+  gate the `verify` job already provides, and trusted publishing with provenance already ties
+  every package to the workflow run that built it.
 - One publish job over build, verify, publish: a broken platform would be discovered after five
   versions were already spent.
 - Shipping the built directory between jobs over packed tarballs: the executable bit does not

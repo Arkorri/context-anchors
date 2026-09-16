@@ -45,7 +45,7 @@ node scripts/src/docs/gen-index.mjs                                 # after edit
   @ref[.github/workflows/release.yml]. Change the generator or its input and rerun.
 - **Every file under @ref[docs/] starts with frontmatter** (`title`, `description`, `tags`), then
   the index is regenerated.
-- **Open work goes in @ref[TODO.md]**, one line each. No `TODO` comments in code.
+- **No `TODO` comments in code.** Open work is tracked in GitHub issues, not in the repository.
 - **Commits and PR titles** are `type(scope): summary` (`feat(coverage): ...`,
   `chore(docs): ...`). Branches are `<initials>/<MM_DD_YY>/<type>_<scope>_/<slug>`.
 

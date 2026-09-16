@@ -36,7 +36,7 @@ command name into a registry, and a placeholder is clutter.
 |---|---|
 | The binary: CLI and language server in one executable | GitHub Releases, npm |
 | Agent integration: config, the marker guide, an optional hook | @[Init] |
-| Editor extension | deferred; see @ref[TODO.md] |
+| Editor extension | not planned; see §4 |
 
 Only the binary is a packaging problem. @[Init] writes @ref[crates/context-anchors/templates/anchr.toml]
 and the marker guide @ref[crates/context-anchors/templates/ANCHR.md] into the user's repository,
@@ -81,18 +81,33 @@ package, so a teammate on another platform installs none. `npm ci` against a loc
 scratch is unaffected. The shim's failure message names the missing package and points at the
 shell installer, so this surfaces as an instruction, not a stack trace.
 
-**Deferred.** All tracked in @ref[TODO.md].
+**Homebrew.** `brew install Arkorri/tap/context-anchors`. cargo-dist builds the formula from the
+macOS and Linux archives and the `publish-homebrew-formula` job pushes it to the
+`Arkorri/homebrew-tap` repository, a README plus one generated file. The tap is a separate
+repository because Homebrew's `owner/name/formula` shorthand resolves to a repository called
+`homebrew-name` under that owner, and because the publish job commits to the tap's default branch
+on every release, which must not be this repository's `main`. It is also the cheap answer to
+macOS trust:
+`curl | sh` sets no quarantine attribute, so Gatekeeper never looks, but a browser-downloaded
+archive gets one and is refused. Notarisation does not apply to Homebrew CLI formulae, so the tap
+closes that path for free where a Developer ID costs money every year. Prereleases reach the tap
+too, since Homebrew has no `next` tag; it orders `0.1.0` above `0.1.0-rc.1`, so the stable tag
+restores the formula and `brew upgrade` moves anyone who installed during the rehearsal.
 
-- Homebrew: cargo-dist already generates the formula; a tap is a config flip. It is also the cheap
-  answer to macOS trust: `curl | sh` sets no quarantine attribute, so Gatekeeper never looks, but
-  a browser-downloaded archive gets one and is refused. Notarisation does not apply to Homebrew
-  CLI formulae, so a tap closes that path for free where a Developer ID costs money every year.
+**Not planned.** The reasoning is kept here so the question is not reopened from scratch.
+
 - crates.io: not a discovery channel for CLIs. `cargo binstall` is a real fetch path for Rust
   developers and the metadata already exists, but publishing means two crates versioned in
   lockstep for users who already have the shell installer.
 - VS Code and OpenVSX: only VS Code needs an extension to reach a generic LSP server; Neovim,
   Helix, and Zed already work from `anchr lsp`.
-- Code signing: unsigned survives while the installers and a tap are the recommended paths.
+- Code signing: unsigned survives while the installers and the tap are the recommended paths. On
+  Windows, SmartScreen warns on browser-downloaded files that are double-clicked, not on a binary
+  the PowerShell installer fetched and a terminal runs, and Microsoft's own guidance is that a
+  signature does not stop the prompt until the file hash has download history, which every
+  release resets. Azure Trusted Signing would add a paid subscription, an identity validation that
+  puts the maintainer's legal name on every binary, and a renewal cycle, for a warning most users
+  never see.
 
 ## 5. What is in the binary
 <!-- @anchor[dist/implementation-decisions] -->

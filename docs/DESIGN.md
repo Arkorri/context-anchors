@@ -154,22 +154,24 @@ In priority order.
    permitted only for suggestions and for @[Coverage], neither of which can fail a build or
    mutate a file.
 
-## 7. Deferred, with reasons
+## 7. Not built, with reasons
 <!-- @anchor[design/deferred] -->
 
-Tracked in @ref[TODO.md]; the reasoning lives here.
+None of these is planned work. The reasoning is kept so the question is not reopened from
+scratch.
 
 **Content signatures.** Resolution has a blind spot: `validateToken` still exists, but the
-paragraph describing it is now wrong. Hashing the target would catch that, and it is deferred
+paragraph describing it is now wrong. Hashing the target would catch that, and it is not built
 because it is a categorically different mechanism. Resolution is binary and objective; a hash
 cannot tell a variable rename from a semantic inversion, so it produces suspicion, not a
 finding. Letting it into @[Check] dilutes a hard guarantee with a soft signal and ends in
-`--no-verify`. When built it is a separate non-blocking command pair: `review` reports drift,
-`accept` records that a reviewer asserted the prose is accurate as of hash X. The interesting
-product is "when was this documentation last verified against the code", which nothing provides.
-Two constraints: hash the declaration signature, not the body, since prose describes contracts and
-body hashes nag on every refactor; and make the ledger line-oriented and sorted, because it is
-the only committed file in the design and lockfile merge conflicts are how tools become hated.
+`--no-verify`. If it is ever built it is a separate non-blocking command pair: `review` reports
+drift, `accept` records that a reviewer asserted the prose is accurate as of hash X. The
+interesting product is "when was this documentation last verified against the code", which
+nothing provides. Two constraints: hash the declaration signature, not the body, since prose
+describes contracts and body hashes nag on every refactor; and make the ledger line-oriented and
+sorted, because it is the only committed file in the design and lockfile merge conflicts are how
+tools become hated.
 
 **Extent, dropped.** An anchor was going to carry a range so signatures had something to hash.
 With signatures deferred nothing needs it; the container AST is still parsed for fence exclusion,
@@ -177,8 +179,8 @@ but block-boundary reasoning is gone.
 
 **Exported vs. internal anchors.** A cross-root anchor is a published contract: deleting it
 breaks a downstream repository while the upstream's own CI stays green. The compiler answer is
-`pub`/`export`. Deferred until a real plugin ecosystem forms; single namespace per root ships
-first.
+`pub`/`export`. Not worth building until a real plugin ecosystem forms; single namespace per
+root ships first.
 
 **MCP adapter.** Agents can shell out to the CLI exactly as a human would. MCP makes @[Check]
 *callable*, not *automatic*, and does not replace a hook; it is worth building only if the CLI
