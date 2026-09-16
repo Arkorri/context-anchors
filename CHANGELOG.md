@@ -2,7 +2,7 @@
 
 Notable changes to `context-anchors`. This project follows [semantic versioning](https://semver.org).
 
-## [Unreleased]
+## [0.0.3] - 2026-09-15
 
 ### Changed
 
