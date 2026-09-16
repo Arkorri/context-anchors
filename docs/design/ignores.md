@@ -1,3 +1,9 @@
+---
+title: Ignores
+description: The two ignore questions, which paths are looked at and which strings are proposed, and the config table and marker that answer them. Read before changing scanning, coverage candidates, or config.
+tags: [design, coverage, config]
+---
+
 # Ignores — which paths anchr looks at, which strings it proposes
 
 **Status:** implemented. Companion to @ref[./aliases.md] (the construct that made the
@@ -11,7 +17,7 @@ remaining coverage candidates visible) and @ref[CODE_DESIGN.md] (the pipeline th
 @ref[crates/anchr-core/src/marker/noref/noref.rs#NoRefEntry as NoRefEntry]
 @ref[crates/anchr-core/src/noref/noref.rs#NoRefSet as NoRefSet]
 @ref[crates/anchr-core/src/config/config.rs#IgnoreConfig as IgnoreConfig]
-@noref[foo.ts, src/file.ts, src/x.ts, docs/CLAUDE.md, crates/x/src/lib.rs, research/, drafts/, build/, .claude/, .claude/skills/]
+@noref[foo.ts, src/file.ts, src/x.ts, docs/CLAUDE.md, crates/x/src/lib.rs, research/, /research/, drafts/, build/, .claude/, .claude/skills/]
 
 ## 1. Problem
 
@@ -92,7 +98,7 @@ tokens = ["CLAUDE.md", "AGENTS.md", "src/**"]      # globs matched against the w
 by the same crate that reads `.gitignore`, so anchoring (`/build/`), directory-only patterns
 (`drafts/`), and negation (`!vendor/keep.md`) mean exactly what they mean in a `.gitignore` in
 that directory. An unanchored name matches at any depth, as in git: `research/` removes every
-directory of that name, `/docs/research/` only the one at the root. The list is layered on top
+directory of that name, `/research/` only the one at the root. The list is layered on top
 of `.gitignore`: the walker applies git's rules first and this list second, so a `!` line here
 can never resurrect a gitignored file. `.gitignore` itself applies as git applies it, only
 inside a git repository and with parent files stopping at the nearest `.git`; a root that is not
