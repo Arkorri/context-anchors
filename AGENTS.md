@@ -21,7 +21,7 @@ cargo clippy --workspace --all-targets --all-features --locked     # CI denies w
 cargo test --workspace --locked --no-fail-fast
 cargo run --locked --bin anchr -- check --strict --color never     # the repo's own references
 cargo run --locked --bin anchr -- coverage                          # mentions that could be markers
-node --test $(find scripts/tests -name '*.test.mjs')
+node --test 'scripts/tests/**/*.test.mjs'
 node scripts/src/docs/gen-index.mjs                                 # after editing docs frontmatter
 ```
 
