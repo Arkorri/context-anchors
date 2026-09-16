@@ -16,7 +16,7 @@ tags: [setup, toolchain, ci]
   `llvm-tools-preview`. The workspace's minimum supported version is 1.85 and CI builds on it;
   nothing in the code should need newer.
 - **Rust nightly** only for fuzzing: `rustup toolchain install nightly`.
-- **Node 20 or later** for the scripts under @ref[scripts/]. No `package.json`, no dependencies.
+- **Node 24 or later** for the scripts under @ref[scripts/]. No `package.json`, no dependencies.
 - **A C compiler** at build time, for the tree-sitter grammar crates. Xcode command-line tools,
   `build-essential`, or MSVC.
 
@@ -49,7 +49,7 @@ cargo fmt --all -- --check
 cargo clippy --workspace --all-targets --all-features --locked
 cargo test --workspace --locked --no-fail-fast
 cargo run --locked --bin anchr -- check --strict --color never
-node --test $(find scripts/tests -name '*.test.mjs')
+node --test 'scripts/tests/**/*.test.mjs'
 node scripts/src/linguist/gen-extensions.mjs --check
 node scripts/src/docs/gen-index.mjs --check
 cargo deny check

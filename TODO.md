@@ -30,7 +30,6 @@ this file only says what is not done yet.
 - @ref[.github/workflows/release.yml] runs `plan`, `host`, and `announce` on `ubuntu-22.04`, which
   @ref[dist-workspace.toml] says is retiring; the three workflows also pin different `checkout`
   and `setup-node` versions.
-- @ref[.github/workflows/ci.yml] runs Node 20, end of life since April 2026; move it to Node 24.
 - The integration-test `Fixture` struct is copied across @ref[crates/context-anchors/tests/cli.rs],
   @ref[crates/context-anchors/tests/coverage.rs], and @ref[crates/context-anchors/tests/tools.rs]
   with small differences.

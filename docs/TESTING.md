@@ -117,7 +117,7 @@ script guards its `main()` behind an argv check so a test can import its pure fu
 fetching or writing.
 
 ```sh
-node --test $(find scripts/tests -name '*.test.mjs')
+node --test 'scripts/tests/**/*.test.mjs'
 ```
 
 ## 8. Coverage floors
