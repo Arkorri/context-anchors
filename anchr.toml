@@ -10,6 +10,5 @@ paths = ["target/**", "**/snapshots/**"]
 # inside the tree-sitter grammars, and example paths under a bare `src/`. The glob is anchored,
 # so it never hides a real reference under `scripts/src/`.
 tokens = [
-  "CLAUDE.md", "AGENTS.md", "package.json", "build.rs", "CHANGELOG.md",
-  "dist-manifest.json", "crates.io", "tags.scm", "src/**", ".claude/settings.json",
+  "CLAUDE.md", "AGENTS.md", "package.json", "build.rs", "dist-manifest.json", "crates.io", "tags.scm", "src/**", ".claude/settings.json",
 ]
