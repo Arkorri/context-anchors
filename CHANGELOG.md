@@ -8,6 +8,9 @@ Notable changes to `context-anchors`. This project follows [semantic versioning]
 
 - A Homebrew tap: `brew install Arkorri/tap/context-anchors`. The formula is generated from the
   macOS and Linux release archives and published on every release, prereleases included.
+- `anchr check --format github`: the human report followed by one GitHub Actions annotation per
+  location, so findings appear on the pull-request diff. Paths are relative to
+  `GITHUB_WORKSPACE` when it is set.
 
 ### Changed
 

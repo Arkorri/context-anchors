@@ -17,8 +17,13 @@ pub fn write(out: &mut impl Write, report: &Report) -> std::io::Result<()> {
 }
 
 /// Styling is chosen by the caller so that a test can render deterministic bytes; `write` is the
-/// only production entry point and always styles.
-fn write_with(out: &mut impl Write, renderer: &Renderer, report: &Report) -> std::io::Result<()> {
+/// only production entry point and always styles. The GitHub renderer reuses this so its tests
+/// stay deterministic too.
+pub(super) fn write_with(
+    out: &mut impl Write,
+    renderer: &Renderer,
+    report: &Report,
+) -> std::io::Result<()> {
     for diagnostic in &report.diagnostics {
         let source = first_site_source(report, diagnostic);
         let group = group_for(diagnostic, source.as_deref());

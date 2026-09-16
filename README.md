@@ -137,6 +137,7 @@ covers only that exact word. To silence something everywhere instead of in one f
 ```sh
 anchr check                          # resolve every reference; fails if one is broken
 anchr check --format json            # the same report, machine-readable
+anchr check --format github          # the same, plus annotations on the pull-request diff
 anchr check --strict                 # also fail on what couldn't be verified
 anchr backrefs '#auth/flow'          # list everything pointing at a target
 anchr rename auth/flow auth/session  # rename an anchor everywhere (--dry-run to preview)

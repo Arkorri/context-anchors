@@ -110,6 +110,7 @@ say so once and the report stops asking:
 ```text
 anchr check                    human-readable report; exit 1 on errors
 anchr check --format json      machine-readable report (schema 1)
+anchr check --format github    the human report, then a GitHub Actions annotation per site
 anchr check --strict           unverified findings (missing root, no grammar) also fail
 anchr check path/to/file.md    report only references in the given files
 anchr backrefs '#some-id'      every reference to a target

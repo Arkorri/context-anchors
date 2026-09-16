@@ -51,8 +51,8 @@ pub struct CheckArgs {
     #[arg(long, value_name = "DIR")]
     pub root: Option<Utf8PathBuf>,
 
-    #[arg(long, value_enum, default_value_t = Format::Human)]
-    pub format: Format,
+    #[arg(long, value_enum, default_value_t = CheckFormat::Human)]
+    pub format: CheckFormat,
 
     /// Treat every unverified finding as an error.
     #[arg(long)]
@@ -160,6 +160,16 @@ pub struct CompletionsArgs {
 pub enum Format {
     Human,
     Json,
+}
+
+/// `check` alone has a third format, so it gets its own enum: clap then rejects
+/// `--format github` on the other commands at parse time instead of them ignoring it.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, ValueEnum)]
+pub enum CheckFormat {
+    Human,
+    Json,
+    /// The human report, then one GitHub Actions annotation per location.
+    Github,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, ValueEnum)]

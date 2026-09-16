@@ -34,7 +34,8 @@ impl Fixture {
     }
 
     /// `anchr` run in the repository with the developer's shell kept out. `NO_COLOR` is removed
-    /// so colour assertions see the flags alone. The home and git variables point at the empty
+    /// so colour assertions see the flags alone, and `GITHUB_WORKSPACE` so `--format github`
+    /// behaves the same on a runner as on a laptop. The home and git variables point at the empty
     /// `<tmp>/home`, which covers every place the `ignore` crate looks for a global excludes file
     /// (`GIT_CONFIG_GLOBAL`, `~/.gitconfig`, `$XDG_CONFIG_HOME/git/config`, the system config,
     /// `~/.config/git/ignore`); the binary itself reads a home only to expand `~` in config.
@@ -45,6 +46,7 @@ impl Fixture {
         command
             .current_dir(&self.root)
             .env_remove("NO_COLOR")
+            .env_remove("GITHUB_WORKSPACE")
             .env("HOME", &home)
             .env("USERPROFILE", &home)
             .env("XDG_CONFIG_HOME", &home)

@@ -63,7 +63,8 @@ does not otherwise consume.
 with `assert_cmd` and `predicates` on tempdir fixtures. One binary rather than one crate per file,
 so the modules share a fixture and the dev-dependencies link once; tests share a process, so
 nothing may touch global state. A module per command: `cli` (exit codes 0, 1, 2; `--format json`
-schema stability; `--strict`; `PATHS` filtering; bad-config caret rendering), `init` (idempotency,
+schema stability; `--format github` annotations and their workspace-relative paths; `--strict`;
+`PATHS` filtering; bad-config caret rendering), `init` (idempotency,
 `--force`, `--dry-run`, settings merging that preserves foreign keys), `tools` (`backrefs`,
 `rename`), `coverage` (`coverage`, `annotate`), and `lsp`, a hand-rolled JSON-RPC client over the
 binary's stdio with a read timeout, so a protocol mistake fails instead of hanging. Filter by
@@ -77,8 +78,9 @@ that needs an unusual layout builds it through `root()` inside the test; a helpe
 into the support module only when a second module wants it; the constructor never grows a
 parameter.
 
-The three `insta` snapshots beside @ref[crates/context-anchors/tests/integration/cli.rs] pin the human report
-(grouped by cause, with `--color never`) and the JSON report. The snapshot directory is in
+The four `insta` snapshots beside @ref[crates/context-anchors/tests/integration/cli.rs] pin the human report
+(grouped by cause, with `--color never`), the JSON report, and the GitHub annotation list. The
+snapshot directory is in
 `[ignore] paths`, so it is neither scanned nor referenceable. After an intentional output change:
 
 ```sh
@@ -175,6 +177,6 @@ Warnings are errors in CI (`RUSTFLAGS: -D warnings`); run clippy the same way lo
   support module's constructor takes none.
 - Checked-in fixture repositories over tempdir fixtures built inline: the fixture is readable
   next to the assertion, and nothing on disk drifts.
-- Snapshot tests for every report over three: the grouped human report, the relative-path
-  malformed case, and the JSON schema are the shapes that must not drift; everything else is
-  asserted directly.
+- Snapshot tests for every report over four: the grouped human report, the relative-path
+  malformed case, the JSON schema, and the GitHub annotation list are the shapes that must not
+  drift; everything else is asserted directly.

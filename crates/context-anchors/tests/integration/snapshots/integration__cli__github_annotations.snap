@@ -1,0 +1,27 @@
+---
+source: crates/context-anchors/tests/integration/cli.rs
+expression: stdout
+---
+error: unknown anchor id `auth/flow` in root `repo`
+ --> docs/a.md:3:5
+  |
+3 | See @ref[#auth/flow] and again @ref[#auth/flow].
+  |     ^^^^^^^^^^^^^^^^
+ ::: docs/a.md:3:32
+ ::: docs/b.md:3:1
+ ::: src/x.rs:1:4
+
+unverified: no grammar for `src/thing.ex`; symbol references into it were not checked
+ --> src/y.rs:1:4
+  |
+1 | // @ref[src/thing.ex#anything]
+  |    ^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  |
+  = help: no bundled grammar for `.ex`; symbol references into these files cannot be checked
+
+checked 5 references in 4 files (1 anchors): 0 resolved, 1 errors, 1 unverified
+::error file=docs/a.md,line=3,col=5,title=anchor-missing::unknown anchor id `auth/flow` in root `repo`
+::error file=docs/a.md,line=3,col=32,title=anchor-missing::unknown anchor id `auth/flow` in root `repo`
+::error file=docs/b.md,line=3,col=1,title=anchor-missing::unknown anchor id `auth/flow` in root `repo`
+::error file=src/x.rs,line=1,col=4,title=anchor-missing::unknown anchor id `auth/flow` in root `repo`
+::warning file=src/y.rs,line=1,col=4,title=no-grammar::no grammar for `src/thing.ex`; symbol references into it were not checked; no bundled grammar for `.ex`; symbol references into these files cannot be checked
