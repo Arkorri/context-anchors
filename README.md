@@ -2,6 +2,7 @@
 
 [![CI](https://github.com/Arkorri/context-anchors/actions/workflows/ci.yml/badge.svg)](https://github.com/Arkorri/context-anchors/actions/workflows/ci.yml)
 [![npm](https://img.shields.io/npm/v/context-anchors)](https://www.npmjs.com/package/context-anchors)
+[![Homebrew](https://img.shields.io/badge/dynamic/regex?url=https%3A%2F%2Fraw.githubusercontent.com%2FArkorri%2Fhomebrew-tap%2Fmain%2FFormula%2Fcontext-anchors.rb&search=version%20%22(%5B%5E%22%5D%2B)%22&replace=%241&label=homebrew)](https://github.com/Arkorri/homebrew-tap)
 
 **Your docs point at your code. `anchr` tells you when they stop matching.**
 
