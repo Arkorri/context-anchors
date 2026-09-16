@@ -19,7 +19,6 @@ dependencies = [
  "dunce",
  "globset",
  "ignore",
- "insta",
  "line-index",
  "proptest",
  "pulldown-cmark",
