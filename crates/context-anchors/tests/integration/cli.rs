@@ -308,3 +308,70 @@ fn a_missing_bare_path_beside_its_file_gets_a_note_naming_the_relative_form() {
         serde_json::json!(["in `docs/a.md`, `./guide.md` would resolve to `docs/guide.md`"])
     );
 }
+
+#[test]
+fn github_format_prints_the_human_report_then_one_annotation_per_site() {
+    let fixture = Fixture::new(&[
+        (
+            "docs/a.md",
+            "# A\n\nSee @ref[#auth/flow] and again @ref[#auth/flow].\n",
+        ),
+        (
+            "docs/b.md",
+            "@anchor[auth/token-refresh]\n\n@ref[#auth/flow]\n",
+        ),
+        ("src/x.rs", "// @ref[#auth/flow]\nfn f() {}\n"),
+        ("src/thing.ex", "defmodule X do end\n"),
+        ("src/y.rs", "// @ref[src/thing.ex#anything]\n"),
+    ]);
+    let output = fixture
+        .anchr()
+        .args(["check", "--format", "github", "--color", "never"])
+        .output()
+        .unwrap();
+    assert_eq!(output.status.code(), Some(1));
+    let stdout = scrub(&String::from_utf8(output.stdout).unwrap(), fixture.root());
+    insta::assert_snapshot!("github_annotations", stdout);
+}
+
+/// A step's `working-directory` may be a subdirectory of the checkout; GitHub needs paths
+/// relative to the checkout, which the runner names in `GITHUB_WORKSPACE`.
+#[test]
+fn github_annotations_are_checkout_relative_when_the_root_is_below_the_workspace() {
+    let fixture = Fixture::new(&[
+        ("packages/app/anchr.toml", "# a nested root\n"),
+        ("packages/app/docs/a.md", "@ref[#nope]\n"),
+    ]);
+    let workspace = dunce::canonicalize(fixture.root()).unwrap();
+    let output = fixture
+        .anchr()
+        .current_dir(fixture.root().join("packages/app"))
+        .env("GITHUB_WORKSPACE", &workspace)
+        .args(["check", "--format", "github", "--color", "never"])
+        .output()
+        .unwrap();
+    let stdout = String::from_utf8(output.stdout).unwrap();
+    assert!(
+        stdout.contains("::error file=packages/app/docs/a.md,line=1,col=1,title=anchor-missing::"),
+        "{stdout}"
+    );
+}
+
+#[test]
+fn github_annotations_drop_the_file_when_the_root_is_outside_the_workspace() {
+    let fixture = Fixture::new(&[("docs/a.md", "@ref[#nope]\n")]);
+    let elsewhere = fixture.root().parent().unwrap().join("home");
+    let output = fixture
+        .anchr()
+        .env("GITHUB_WORKSPACE", &elsewhere)
+        .args(["check", "--format", "github", "--color", "never"])
+        .output()
+        .unwrap();
+    let stdout = String::from_utf8(output.stdout).unwrap();
+    let annotation = stdout.lines().find(|l| l.starts_with("::")).unwrap();
+    assert!(!annotation.contains("file="), "{annotation}");
+    assert!(
+        annotation.contains(":docs/a.md:1:1: unknown anchor"),
+        "{annotation}"
+    );
+}

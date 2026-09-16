@@ -34,11 +34,24 @@ fn check_defaults_to_human_output_in_auto_colour_and_not_strict() {
     let Command::Check(args) = parse(&["anchr", "check"]).command else {
         panic!("expected check");
     };
-    assert_eq!(args.format, Format::Human);
+    assert_eq!(args.format, CheckFormat::Human);
     assert_eq!(args.color, Color::Auto);
     assert!(!args.strict);
     assert!(args.paths.is_empty());
     assert!(args.root.is_none());
+}
+
+/// The annotation format is a `check` feature; the other reporting commands must refuse it
+/// rather than fall back to human output.
+#[test]
+fn github_format_belongs_to_check_alone() {
+    let Command::Check(args) = parse(&["anchr", "check", "--format", "github"]).command else {
+        panic!("expected check");
+    };
+    assert_eq!(args.format, CheckFormat::Github);
+    assert!(Cli::try_parse_from(["anchr", "backrefs", "#x", "--format", "github"]).is_err());
+    assert!(Cli::try_parse_from(["anchr", "coverage", "--format", "github"]).is_err());
+    assert!(Cli::try_parse_from(["anchr", "coverage", "--format", "json"]).is_ok());
 }
 
 /// `init` writes AGENTS.md-compatible guidance unless asked otherwise; that default is a product

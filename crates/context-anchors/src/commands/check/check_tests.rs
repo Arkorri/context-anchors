@@ -2,7 +2,7 @@ use anchr_core::diagnostic::{Report, Summary};
 use anchr_core::root::FilePath;
 use camino::Utf8PathBuf;
 
-use crate::cli::{Color, Format};
+use crate::cli::{CheckFormat, Color};
 
 use super::*;
 
@@ -10,10 +10,21 @@ fn args(strict: bool) -> CheckArgs {
     CheckArgs {
         paths: Vec::new(),
         root: None,
-        format: Format::Human,
+        format: CheckFormat::Human,
         strict,
         color: Color::Never,
     }
+}
+
+#[test]
+fn the_workspace_is_the_current_directory_unless_github_names_one() {
+    let cwd = Utf8Path::new("/repo/packages/app");
+    assert_eq!(workspace_root(cwd, None), cwd);
+    assert_eq!(workspace_root(cwd, Some(OsString::from(""))), cwd);
+    assert_eq!(
+        workspace_root(cwd, Some(OsString::from("/repo"))),
+        Utf8Path::new("/repo")
+    );
 }
 
 fn report_with(errors: usize, unverified: usize) -> Report {

@@ -109,7 +109,7 @@ One line per module. Each module directory holds `<name>.rs` and `<name>_tests.r
 | @ref[crates/context-anchors/src/main.rs] | dispatch and exit codes: 0 clean, 1 errors, 2 tool failure |
 | @ref[crates/context-anchors/src/cli/cli.rs] | clap derive; every subcommand carries an `@anchor[cli/<name>]` |
 | @ref[crates/context-anchors/src/commands/commands.rs] | shared helpers (`discover`, `Outcome`) and one child per subcommand |
-| @ref[crates/context-anchors/src/render/render.rs] | `human` (rustc-shaped), `json` (versioned DTOs), `coverage` renderers |
+| @ref[crates/context-anchors/src/render/render.rs] | `human` (rustc-shaped), `json` (versioned DTOs), `github` (the human report plus one workflow-command annotation per location), `coverage` renderers |
 | @ref[crates/context-anchors/src/lsp/lsp.rs] | the synchronous stdio server; children `server` (handlers), `convert` (spans and paths to positions and URIs) |
 
 ## 4. Stages
@@ -232,8 +232,13 @@ capped at 40, then the suggestion or hint. Source is not retained in the index; 
 re-reads the one file per diagnostic and degrades to the list form if that fails. Output goes
 through `anstream` for TTY detection and `NO_COLOR`. The JSON renderer serialises its own DTOs,
 not the core types, under `"schema": 1`; locations carry path, 1-based line/col, byte span, and
-region kind; unverified diagnostics carry a `hint` naming the fix. @[Coverage] has its own renderer:
-one group per (verdict, token), no snippets.
+region kind; unverified diagnostics carry a `hint` naming the fix. The GitHub renderer prints the
+human report, then one `::error` or `::warning` line per location for GitHub's log parser: `title`
+is the JSON code, the message is the kind's text with the suggestion and hint appended, and `file`
+is relative to `GITHUB_WORKSPACE` (the working directory when unset), so a root outside it gets
+no `file` and the location moves into the message. Every location is emitted; the 40-site cap is
+a reading aid for the human form only, and `col` is the same 1-based byte column the JSON carries.
+@[Coverage] has its own renderer: one group per (verdict, token), no snippets.
 
 Subcommands and flags are documented by `anchr --help` and the README. `PATHS` filters which
 files' references and malformed markers are reported; indexing still covers the whole root, and

@@ -1,5 +1,7 @@
 #[path = "coverage/coverage.rs"]
 pub mod coverage;
+#[path = "github/github.rs"]
+pub mod github;
 #[path = "human/human.rs"]
 pub mod human;
 #[path = "json/json.rs"]

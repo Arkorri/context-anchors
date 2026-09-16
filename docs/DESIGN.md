@@ -134,8 +134,10 @@ CI users read that flag as "fail on anything you could not check".
   pointed at every site still using the old one.
 - **Suggest, never guess.** A did-you-mean by edit distance is safe because a suggestion never
   mutates anything and is not a correctness claim.
-- **Two output modes.** Human text and JSON with a versioned schema. The JSON consumer is an
+- **Two output contracts.** Human text and JSON with a versioned schema. The JSON consumer is an
   agent or an editor, and structured output retrofitted onto string formatting is miserable.
+  `--format github` is the human text followed by one annotation per location for GitHub's log
+  parser: a presentation of the same report, not a third contract.
 
 ## 6. Invariants
 <!-- @anchor[design/invariants] -->
