@@ -30,11 +30,12 @@ to say so, which meant the report never reached zero and stopped being read.
 
 The remaining third was classifier defect, not ignore material: `line/col` prose read as a path
 and short identifiers matched to the wrong declaration. Both are fixed since, by the path-shape
-rule and by dropping bare identifiers from coverage (@ref[CODE_DESIGN.md] §12a items 15 and 16).
+rule and by dropping bare identifiers from coverage (the rejected alternatives of
+@ref[docs/ARCHITECTURE.md]).
 The rule for authors: **if the tool guessed wrong, fix the tool; if it guessed right and you
 disagree, ignore it.** An ignore list that absorbs classifier bugs hides real mentions elsewhere.
 
-A second problem arrived with the first monorepo run (§12a item 20 of @ref[CODE_DESIGN.md]):
+A second problem arrived with the first monorepo run:
 the same two questions were answered by five knobs, named after the tool phase that read them
 rather than what the author meant, and the token matcher carried a rule nobody could see in the
 config.

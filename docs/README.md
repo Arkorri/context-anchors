@@ -12,7 +12,10 @@ The user-facing guide is the repository README; the marker syntax users see is w
 | Doc | Description | Tags |
 |---|---|---|
 | [Architecture](ARCHITECTURE.md) | How the code realises the design, as a pipeline, a codemap of every module, the key types, and the layer invariants. Read before adding a module, a stage, or a consumer of the core. | architecture, core, cli, lsp |
+| [Code style](CODE_STYLE.md) | The conventions clippy cannot enforce, from module layout and validated newtypes to the two error channels and the rules for untrusted input. Read before writing or reviewing Rust in this repository. | rust, conventions, security |
 | [Design](DESIGN.md) | What anchr promises and the rules the code must never break, from the marker grammar to the three diagnostic classes and the five invariants. Read before changing what a marker means or what check reports. | design, markers, invariants |
+| [Setup](SETUP.md) | The toolchain, the tools to install, and the local commands that reproduce every CI check. Read once when cloning, and again when a CI job fails that you have never run locally. | setup, toolchain, ci |
+| [Testing](TESTING.md) | The one-test-file-per-module rule, what each layer of tests covers, the fuzz and spike targets, the dogfood check, and the CI job table with the local command for each. Read before adding a module, a test, or a CI job. | tests, ci, fuzz, coverage |
 
 ## Feature designs
 

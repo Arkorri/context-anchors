@@ -1,4 +1,3 @@
-// @noref[scripts/src/docs/gen-index.mjs, docs/README.md, a.md, b.md, z.md, sub/x.md, design/aliases.md]
 import assert from "node:assert/strict";
 import { mkdirSync, mkdtempSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
