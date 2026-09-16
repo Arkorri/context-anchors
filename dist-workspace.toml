@@ -22,6 +22,10 @@ install-path = "CARGO_HOME"
 hosting = "github"
 # Whether to install an updater program
 install-updater = false
+# The release workflow runs only on tags. The stale-workflow check dist would otherwise run on
+# every pull request (`dist plan`) runs in CI's `generated` job instead, so a pull request has
+# one workflow run and one required check (see .github/workflows/ci.yml, docs/TESTING.md §10).
+pr-run-mode = "skip"
 # npm is published by our own workflow as platform packages + shim (see
 # .github/workflows/publish-npm.yml), not by dist's download-shim installer.
 publish-jobs = ["homebrew", "./publish-npm"]
@@ -34,9 +38,13 @@ publish-prereleases = true
 # dist 0.32.0 defaults to runner images that GitHub is retiring: macos-14 brownouts start
 # 2026-10-05, and ubuntu-22.04 entered deprecation 2026-09-17. Pin the successors. `global` is
 # the runner for the non-target jobs: plan, host, announce, and the global artifacts build.
+# The Intel macOS archive is cross-compiled on the Apple Silicon runner (dist adds the target with
+# rustup): it was the slowest build by ninety seconds on macos-15-intel, and the npm verify job
+# still executes the binary on a real Intel runner before anything is published.
 [dist.github-custom-runners]
 global = "ubuntu-24.04"
 aarch64-apple-darwin = "macos-15"
+x86_64-apple-darwin = "macos-15"
 x86_64-unknown-linux-gnu = "ubuntu-24.04"
 x86_64-unknown-linux-musl = "ubuntu-24.04"
 aarch64-unknown-linux-gnu = "ubuntu-24.04-arm"

@@ -53,10 +53,12 @@ node --test 'scripts/tests/**/*.test.mjs'
 node scripts/src/linguist/gen-extensions.mjs --check
 node scripts/src/docs/gen-index.mjs --check
 cargo deny check
+dist plan
 ```
 
 Set `RUSTFLAGS=-D warnings` to match CI exactly. Coverage floors and fuzz smoke runs are in
-@[Testing] §8 and §5.
+@[Testing] §8 and §5. `dist plan` only matters after editing @ref[dist-workspace.toml] and
+needs cargo-dist at the version that file names.
 
 ## Working on the docs
 

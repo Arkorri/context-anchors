@@ -8,6 +8,7 @@ tags: [tests, ci, fuzz, coverage]
 
 <!-- refs -->
 @ref[.github/workflows/ci.yml as CiWorkflow]
+@ref[docs/RELEASING.md as Releasing]
 @noref[foo.rs, foo_tests.rs, _test.rs, lib.rs, main.rs, tests/]
 
 ## 1. The pairing rule
@@ -109,7 +110,9 @@ cargo +nightly fuzz run lex -- -max_total_time=60
 ## 6. Dogfood
 
 @ref[anchr.toml] at the root makes this repository its own fixture, and CI fails on any broken
-reference:
+reference. It is the last step of the `rust` job, so it runs on all three platforms with the
+binary the tests just built, and `--format github` puts each finding on the pull-request diff.
+Locally:
 
 ```sh
 cargo run --locked --bin anchr -- check --strict --color never
@@ -148,20 +151,22 @@ cargo llvm-cov report --fail-under-lines 88
 
 ## 9. CI jobs
 
-Every job in @[CiWorkflow] is a command you can run locally.
+@[CiWorkflow] is the one workflow a pull request runs; the release workflow runs only on tags
+(@[Releasing] §2). It runs on every pull request and on every push to `main`. A new push to a
+pull request cancels its running checks; a run on `main` is never cancelled, because it is the
+only test of the merged tree. The workflow token has `contents: read` and every job has a
+timeout. Every job is a command you can run locally.
 
 | Job | What it checks | Local command |
 |---|---|---|
-| `check` (ubuntu, macos, windows) | format, clippy with warnings denied, all tests | `cargo fmt --all -- --check`; `cargo clippy --workspace --all-targets --all-features --locked`; `cargo test --workspace --locked --no-fail-fast` |
-| `coverage` | the floors in §8 | §8 |
-| `dogfood` | the repository's own references | §6 |
-| `action` (ubuntu, macos, windows) | the composite action at @ref[action.yml] installs the latest release and checks the repository with it, so it proves the install path on every platform and lags `dogfood` by one release: a PR that needs a flag newer than the last release turns it red until that release ships | none; `anchr check --strict --format github` with an installed binary is the equivalent |
-| `linguist-table` | the generated extension table is fresh | `node scripts/src/linguist/gen-extensions.mjs --check` |
-| `docs-index` | the generated docs index is fresh | `node scripts/src/docs/gen-index.mjs --check` |
-| `scripts` | script unit tests | §7 |
-| `msrv` | the workspace builds on Rust 1.85 | `cargo +1.85 build --workspace --locked` |
+| `rust` (ubuntu, macos, windows) | format, clippy with warnings denied, all tests, then the repository's own references (§6) | `cargo fmt --all -- --check`; `cargo clippy --workspace --all-targets --all-features --locked`; `cargo test --workspace --locked --no-fail-fast`; `cargo run --locked --bin anchr -- check --strict` |
+| `coverage` | the floors in §8; a separate instrumented build, so its test run is the measurement and not a repeat | §8 |
+| `msrv` | the workspace and its tests type-check on Rust 1.85 | `cargo +1.85 check --workspace --all-targets --locked` |
+| `generated` | script unit tests (§7); the generated extension table and docs index are fresh; the generated release workflow is fresh against @ref[dist-workspace.toml] | `node --test 'scripts/tests/**/*.test.mjs'`; `node scripts/src/linguist/gen-extensions.mjs --check`; `node scripts/src/docs/gen-index.mjs --check`; `dist plan` |
 | `supply-chain` | advisories, licenses, bans, sources | `cargo deny check` |
+| `action` (ubuntu, macos, windows) | the composite action at @ref[action.yml] installs the latest release and checks the repository with it, so it proves the install path on every platform and lags `rust` by one release: a PR that needs a flag newer than the last release turns it red until that release ships | none; `anchr check --strict --format github` with an installed binary is the equivalent |
 | `fuzz` (five targets) | 60 seconds per target on nightly | §5 |
+| `ci-ok` | every job above succeeded; the one check branch protection has to require, so adding or renaming a job never touches it | none |
 
 Warnings are errors in CI (`RUSTFLAGS: -D warnings`); run clippy the same way locally.
 

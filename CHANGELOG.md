@@ -2,6 +2,13 @@
 
 Notable changes to `context-anchors`. This project follows [semantic versioning](https://semver.org).
 
+## [Unreleased]
+
+### Changed
+
+- The release workflow runs only on tags; the check that it is fresh runs in CI instead. The
+  Intel macOS archive is built on the Apple Silicon runner and verified on Intel before publish.
+
 ## [0.0.4] - 2026-09-16
 
 ### Added
