@@ -50,9 +50,8 @@ test("scoped names are escaped for the registry path, trailing slashes normalise
 });
 
 test("publish arguments always carry an absolute spec, public access and an explicit tag", () => {
-  const args = publishArgs("/abs/a.tgz", { tag: "latest", provenance: true });
-  assert.deepEqual(args, ["publish", "/abs/a.tgz", "--access", "public", "--tag", "latest", "--provenance"]);
-  assert.ok(!publishArgs("/abs/a.tgz", { tag: "next" }).includes("--provenance"));
+  const args = publishArgs("/abs/a.tgz", { tag: "latest" });
+  assert.deepEqual(args, ["publish", "/abs/a.tgz", "--access", "public", "--tag", "latest"]);
   assert.ok(publishArgs("/abs/a.tgz", { tag: "next", dryRun: true }).includes("--dry-run"));
   assert.throws(() => publishArgs("npm-dist/context-anchors", { tag: "latest" }), /must be absolute/);
 });

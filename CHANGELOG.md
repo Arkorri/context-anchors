@@ -2,6 +2,14 @@
 
 Notable changes to `context-anchors`. This project follows [semantic versioning](https://semver.org).
 
+## [Unreleased]
+
+### Changed
+
+- npm packages are published through npm trusted publishing: the release workflow authenticates
+  with a short-lived OIDC credential and provenance is attached automatically. No long-lived
+  registry token is used.
+
 ## [0.0.2] - 2026-09-09
 
 A packaging release. The tool itself is unchanged from 0.0.1.

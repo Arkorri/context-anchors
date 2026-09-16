@@ -5,8 +5,10 @@ this file only says what is not done yet.
 
 ## Release pipeline
 
-- Move npm to trusted publishing: configure an OIDC publisher on all six packages, drop
-  `--provenance` from @ref[.github/workflows/publish-npm.yml], delete the `NPM_TOKEN` secret.
+- Staged npm publishing: CI runs `npm stage publish` and a maintainer approves each package with
+  2FA. Needs @ref[scripts/src/npm/publish-packages.mjs] to stage, probe staged state, and promote
+  shim-last, and a dist-tag answer for prereleases. Revisit at 1.0 with signing.
+- Pin the actions in @ref[.github/workflows/publish-npm.yml] to commit SHAs instead of major tags.
 - Release on a version bump instead of a hand-pushed tag: cargo-dist `dispatch-releases` in
   @ref[dist-workspace.toml] plus a job on push to `main` that dispatches when no release matches.
 - Enable the Homebrew tap that cargo-dist already knows how to generate.
@@ -30,6 +32,7 @@ this file only says what is not done yet.
 - @ref[.github/workflows/release.yml] runs `plan`, `host`, and `announce` on `ubuntu-22.04`, which
   @ref[dist-workspace.toml] says is retiring; the three workflows also pin different `checkout`
   and `setup-node` versions.
+- @ref[.github/workflows/ci.yml] runs Node 20, end of life since April 2026; move it to Node 24.
 - The integration-test `Fixture` struct is copied across @ref[crates/context-anchors/tests/cli.rs],
   @ref[crates/context-anchors/tests/coverage.rs], and @ref[crates/context-anchors/tests/tools.rs]
   with small differences.
