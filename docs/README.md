@@ -17,7 +17,7 @@ The user-facing guide is the repository README; the marker syntax users see is w
 | [Distribution](DISTRIBUTION.md) | What ships, under which names, through which channels, and why the npm package is five platform packages plus a shim. Read before touching packaging, installers, or the binary's contents. | distribution, npm, cargo-dist, packaging |
 | [Releasing](RELEASING.md) | How a release is cut, built, verified, and published, what to do when one fails partway, and which credential the npm publish uses. Read before tagging a release or editing the release workflows. | release, ci, npm, cargo-dist |
 | [Setup](SETUP.md) | The toolchain, the tools to install, and the local commands that reproduce every CI check. Read once when cloning, and again when a CI job fails that you have never run locally. | setup, toolchain, ci |
-| [Testing](TESTING.md) | The one-test-file-per-module rule, what each layer of tests covers, the fuzz and spike targets, the dogfood check, and the CI job table with the local command for each. Read before adding a module, a test, or a CI job. | tests, ci, fuzz, coverage |
+| [Testing](TESTING.md) | The one-test-file-per-module rule, what each layer of tests covers, the fuzz and spike targets, the dogfood check, the CI job table with the local command for each, and the required checks and rulesets on main. Read before adding a module, a test, or a CI job. | tests, ci, fuzz, coverage |
 
 ## Feature designs
 

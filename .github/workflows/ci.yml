@@ -130,8 +130,8 @@ jobs:
       - run: cargo install cargo-fuzz --locked
       - run: cargo +nightly fuzz run ${{ matrix.target }} -- -max_total_time=60
 
-  # The one status check to require. It needs every job above, so adding or renaming a job never
-  # touches branch protection.
+  # The one required status check (.github/rulesets/main.json). It needs every job above, so
+  # adding or renaming a job never touches the ruleset.
   ci-ok:
     name: ci-ok
     needs: [rust, coverage, msrv, generated, supply-chain, action, fuzz]

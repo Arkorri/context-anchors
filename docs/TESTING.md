@@ -1,6 +1,6 @@
 ---
 title: Testing
-description: The one-test-file-per-module rule, what each layer of tests covers, the fuzz and spike targets, the dogfood check, and the CI job table with the local command for each. Read before adding a module, a test, or a CI job.
+description: The one-test-file-per-module rule, what each layer of tests covers, the fuzz and spike targets, the dogfood check, the CI job table with the local command for each, and the required checks and rulesets on main. Read before adding a module, a test, or a CI job.
 tags: [tests, ci, fuzz, coverage]
 ---
 
@@ -154,7 +154,7 @@ cargo llvm-cov report --fail-under-lines 88
 @[CiWorkflow] is the one workflow a pull request runs; the release workflow runs only on tags
 (@[Releasing] §2). It runs on every pull request and on every push to `main`. A new push to a
 pull request cancels its running checks; a run on `main` is never cancelled, because it is the
-only test of the merged tree. The workflow token has `contents: read` and every job has a
+only test of the merged tree (§10). The workflow token has `contents: read` and every job has a
 timeout. Every job is a command you can run locally.
 
 | Job | What it checks | Local command |
@@ -166,9 +166,44 @@ timeout. Every job is a command you can run locally.
 | `supply-chain` | advisories, licenses, bans, sources | `cargo deny check` |
 | `action` (ubuntu, macos, windows) | the composite action at @ref[action.yml] installs the latest release and checks the repository with it, so it proves the install path on every platform and lags `rust` by one release: a PR that needs a flag newer than the last release turns it red until that release ships | none; `anchr check --strict --format github` with an installed binary is the equivalent |
 | `fuzz` (five targets) | 60 seconds per target on nightly | §5 |
-| `ci-ok` | every job above succeeded; the one check branch protection has to require, so adding or renaming a job never touches it | none |
+| `ci-ok` | every job above succeeded; the one required check (§10) | none |
 
 Warnings are errors in CI (`RUSTFLAGS: -D warnings`); run clippy the same way locally.
+
+## 10. Required checks
+<!-- @anchor[tests/required-checks] -->
+
+`main` accepts only squash merges of pull requests whose `ci-ok` check passed. The rule is a
+repository ruleset, kept as @ref[.github/rulesets/main.json] and applied with the GitHub API,
+so a change to it is reviewed like any other:
+
+```sh
+gh api -X POST repos/Arkorri/context-anchors/rulesets --input .github/rulesets/main.json
+gh api repos/Arkorri/context-anchors/rulesets --jq '.[] | {id, name, enforcement}'
+gh api -X PUT repos/Arkorri/context-anchors/rulesets/<id> --input .github/rulesets/main.json
+```
+
+What it requires and why:
+
+- **One check, `ci-ok`**, reported by GitHub Actions (`integration_id` 15368) and nothing else.
+  It needs every job in @[CiWorkflow], so a job added or renamed is covered without a settings
+  change. The individual jobs still show on the pull request; they are just not what the merge
+  waits for.
+- **Not strict.** A branch need not be up to date with `main` for its checks to count. The
+  repository merges stacked pull requests bottom-up, and strict checks would demand a rebase and
+  a fresh run per layer. The run on `main` after each merge tests the merged tree instead.
+- **Squash only**, with linear history, so `main` reads as one `type(scope): summary (#N)` line
+  per pull request. No review count is required: this is a single-maintainer repository.
+- **Administrators bypass.** The `action` job is red by design when a pull request needs a flag
+  newer than the last release (§9); that is the case the bypass exists for. GitHub Actions' own
+  token is not an administrator, so no workflow can push to `main`.
+
+Release tags have their own ruleset; see @[Releasing] §1.
+
+If concurrent contributors ever make "not strict" insufficient, the upgrade is a merge queue:
+add `merge_group:` to the workflow's triggers and a `merge_queue` rule to the ruleset. Nothing
+in the generated release workflow is involved, because the `dist plan` check already runs in
+@[CiWorkflow].
 
 ## Rejected alternatives
 
@@ -186,3 +221,8 @@ Warnings are errors in CI (`RUSTFLAGS: -D warnings`); run clippy the same way lo
 - Snapshot tests for every report over four: the grouped human report, the relative-path
   malformed case, the JSON schema, and the GitHub annotation list are the shapes that must not
   drift; everything else is asserted directly.
+- Requiring each CI job by name over one fan-in: every rename or new job would edit the ruleset,
+  and a matrix job's name carries the runner label, which changes too.
+- Strict required checks over a post-merge run on `main`: strict serialises a stack into one
+  rebase and one CI round per layer for a merged-tree guarantee the `main` run already gives.
+- A merge queue today: it exists to interleave concurrent contributors, and there are none.
