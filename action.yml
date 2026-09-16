@@ -1,0 +1,74 @@
+name: context-anchors
+description: Install a released anchr binary and check the references in docs, agent context files, and code comments.
+author: Arkorri
+branding:
+  icon: anchor
+  color: blue
+
+# The action installs a release; it builds nothing. The ref it is called with names the release,
+# so `uses: Arkorri/context-anchors@v0.0.4` installs 0.0.4. See docs/DISTRIBUTION.md.
+
+inputs:
+  version:
+    description: >-
+      Release to install: a tag such as v0.0.4, or `latest`. Defaults to the ref this action was
+      called with. A ref that is not a version tag (a branch, a commit, `uses: ./`) installs the
+      latest release.
+    required: false
+    default: ${{ github.action_ref }}
+  args:
+    description: Arguments for `anchr`, split by bash.
+    required: false
+    default: check --strict --format github
+  working-directory:
+    description: Directory to run `anchr` in; root discovery starts there.
+    required: false
+    default: .
+
+runs:
+  using: composite
+  steps:
+    - name: Resolve the release to install
+      id: release
+      shell: bash
+      env:
+        REQUESTED: ${{ inputs.version }}
+      run: |
+        case "$REQUESTED" in
+          v[0-9]*) url="https://github.com/Arkorri/context-anchors/releases/download/$REQUESTED" ;;
+          [0-9]*)  url="https://github.com/Arkorri/context-anchors/releases/download/v$REQUESTED" ;;
+          *)
+            echo "::notice::context-anchors: '$REQUESTED' is not a release tag; installing the latest release"
+            url="https://github.com/Arkorri/context-anchors/releases/latest/download"
+            ;;
+        esac
+        echo "url=$url" >> "$GITHUB_OUTPUT"
+
+    # The installers put the binary in <dir>/bin. With PATH modification off they touch neither
+    # the shell profile nor GITHUB_PATH, so the bin directory is appended here.
+    - name: Install anchr (Linux, macOS)
+      if: runner.os != 'Windows'
+      shell: bash
+      env:
+        CONTEXT_ANCHORS_INSTALL_DIR: ${{ runner.temp }}/context-anchors
+        CONTEXT_ANCHORS_NO_MODIFY_PATH: "1"
+        INSTALLER_URL: ${{ steps.release.outputs.url }}/context-anchors-installer.sh
+      run: |
+        curl --proto '=https' --tlsv1.2 -LsSf "$INSTALLER_URL" | sh
+        echo "$CONTEXT_ANCHORS_INSTALL_DIR/bin" >> "$GITHUB_PATH"
+
+    - name: Install anchr (Windows)
+      if: runner.os == 'Windows'
+      shell: pwsh
+      env:
+        CONTEXT_ANCHORS_INSTALL_DIR: ${{ runner.temp }}\context-anchors
+        CONTEXT_ANCHORS_NO_MODIFY_PATH: "1"
+        INSTALLER_URL: ${{ steps.release.outputs.url }}/context-anchors-installer.ps1
+      run: |
+        irm "$env:INSTALLER_URL" | iex
+        Add-Content -Path $env:GITHUB_PATH -Value "$env:CONTEXT_ANCHORS_INSTALL_DIR\bin"
+
+    - name: anchr ${{ inputs.args }}
+      shell: bash
+      working-directory: ${{ inputs.working-directory }}
+      run: anchr ${{ inputs.args }}

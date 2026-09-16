@@ -9,6 +9,7 @@ tags: [distribution, npm, cargo-dist, packaging]
 <!-- refs -->
 @ref[docs/RELEASING.md as Releasing]
 @ref[#cli/init as Init]
+@ref[action.yml as Action]
 @noref[bin/anchr.js]
 
 How releases are cut, verified, and published is in @[Releasing]; this document is what a
@@ -36,6 +37,7 @@ command name into a registry, and a placeholder is clutter.
 |---|---|
 | The binary: CLI and language server in one executable | GitHub Releases, npm |
 | Agent integration: config, the marker guide, an optional hook | @[Init] |
+| CI integration: a composite GitHub action that runs a released binary | @[Action], pinned by release tag |
 | Editor extension | not planned; see §4 |
 
 Only the binary is a packaging problem. @[Init] writes @ref[crates/context-anchors/templates/anchr.toml]
@@ -93,6 +95,15 @@ archive gets one and is refused. Notarisation does not apply to Homebrew CLI for
 closes that path for free where a Developer ID costs money every year. Prereleases reach the tap
 too, since Homebrew has no `next` tag; it orders `0.1.0` above `0.1.0-rc.1`, so the stable tag
 restores the formula and `brew upgrade` moves anyone who installed during the rehearsal.
+
+**The GitHub action.** @[Action] is the installer channel with the version fixed by the ref: it
+fetches the installer for the tag it was called with (`latest` for a ref that is not a version
+tag), puts the binary on the step's `PATH`, and runs `anchr check --strict --format github` in
+the checkout. It builds nothing and is not a Docker action, so it works at the release after it
+lands, never before, and its default arguments must only use flags that release has. The
+`file=` in each annotation is relative to `GITHUB_WORKSPACE`, so `working-directory` may point
+into a subdirectory. Without Node and without GitHub, the README's CI section shows the shell
+installer in a job step.
 
 **Not planned.** The reasoning is kept here so the question is not reopened from scratch.
 
