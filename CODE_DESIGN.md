@@ -19,12 +19,12 @@
 @ref[#cli/init as Init]
 @noref[foo.ts, report.json, docs/a.md, .claude/, .claude/worktrees/, research/, marker/lex/lex.rs, marker/lex/lex_tests.rs, _tests.rs, _test.rs, tests/]
 
-**Companion to:** @ref[DESIGN.md] (what the tool is) and @ref[DISTRIBUTION.md] (how it ships); this
+**Companion to:** @ref[docs/DESIGN.md] (what the tool is) and @ref[DISTRIBUTION.md] (how it ships); this
 document covers how the code is shaped. Where it deviates from those two, §12 says so.
 
 ## Context
 
-@ref[DESIGN.md] and @ref[DISTRIBUTION.md] settle *what* `anchr` is: opt-in `@anchor[id]` /
+@ref[docs/DESIGN.md] and @ref[DISTRIBUTION.md] settle *what* `anchr` is: opt-in `@anchor[id]` /
 `@ref[target]` markers in prose and code comments, batch-validated by `anchr check`,
 grouped-by-cause diagnostics with an explicit *unverified* class, Rust single binary, LSP later. The
 repo has no code yet.
@@ -32,7 +32,7 @@ repo has no code yet.
 This document is the code-level design that turns that into a Rust workspace: crate layout, module
 map, core types, the per-stage algorithms, the crate choices (reuse first), error/diagnostic model,
 security posture, CLI surface, config schema, and test strategy. Open questions from
-@ref[#design/open-questions] are answered inline where the code forces a decision. Question 4
+the original design's open questions are answered inline where the code forces a decision. Question 4
 (premise validation) is skipped per instruction.
 
 The two design docs are drafts: where research found a better option, this plan takes it and
@@ -264,7 +264,7 @@ error-tolerant tree. A file whose extension has no registered language is not a 
 container at all (see registry below). `Parser` is `!Sync`, so one lives per walker thread
 (§3.3); `Query` objects are compiled once per language and shared.
 
-**Plaintext** — one region `0..len`, kind `Whole`. Answers @ref[#design/open-questions] Q3 for v1: a
+**Plaintext** — one region `0..len`, kind `Whole`. Answers the original design's open questions Q3 for v1: a
 plaintext container cannot carry documentation about the marker syntax, and that is acceptable; the
 escape hatch is to write such docs in markdown. Note this in the user docs.
 
@@ -317,7 +317,6 @@ markers per line are naturally supported.
 Output per file: `FileScan { path, markers: Vec<Marker>, malformed: Vec<MalformedMarker>, line_index: LineIndex }`.
 
 ### 3.3 Scan (@ref[crates/anchr-core/src/scan/scan.rs])
-<!-- @anchor[code/scan] -->
 
 For a @ref[crates/anchr-core/src/root/root.rs#Root]: `ignore::WalkBuilder::new(root.dir)` with
 `.hidden(false)`, `.git_ignore(true)`, `.git_global(true)`, `.git_exclude(true)`,
@@ -453,7 +452,7 @@ dir and index.
   a link whose target leaves the root is the one case that falls back to `fs::metadata`, for
   existence only, because the tree has no ignore information out there and
   `docs -> ../shared-docs` is a promised shape. A trailing `/` in the target additionally requires
-  a directory. Directory refs stay (@ref[#design/open-questions] Q1: free, so keep).
+  a directory. Directory refs stay (the original design's open questions Q1: free, so keep).
 - **Symbol**: path must exist (else `PathMissing`); the joined path is canonicalized and must
   `starts_with` the canonical root (else `PathEscapesRoot`, since this is a read); registry lookup
   by extension (none ⇒ `NoGrammar`; no declaration query ⇒ `NoSymbolQuery`); parse with
@@ -477,7 +476,7 @@ dir and index.
   Duplicated IDs still resolve (the duplicate is its own error at the anchor sites, or an
   `ExternalDuplicate` unverified finding if the root is external).
 
-Answers @ref[#design/open-questions] Q2, more broadly than asked: every unverified outcome (absent
+Answers the original design's open questions Q2, more broadly than asked: every unverified outcome (absent
 root included) is non-blocking by default; `--strict`, or `check.unverified = "error"` in config,
 promotes *all* unverified findings to errors. CI users read `--strict` as "fail on anything you
 could not check", so the flag means exactly that rather than a single-cause toggle.
@@ -618,7 +617,7 @@ target grammar parser, the region-complement logic, the index, resolution, and g
 
 | Concern | Crate | Version | Why |
 |---|---|---|---|
-| Markdown | `pulldown-cmark` | 0.13.4 | byte-range `into_offset_iter`; pure Rust; rustdoc/mdBook lineage. **Deviation from @ref[DESIGN.md] (comrak)**: comrak's sourcepos is 1-based line/col and we only need byte exclusion ranges. |
+| Markdown | `pulldown-cmark` | 0.13.4 | byte-range `into_offset_iter`; pure Rust; rustdoc/mdBook lineage. **Deviation from @ref[docs/DESIGN.md] (comrak)**: comrak's sourcepos is 1-based line/col and we only need byte exclusion ranges. |
 | Parse runtime | `tree-sitter` | 0.27.0 | canonical bindings; accepts grammar ABI 13–15 |
 | Grammars | `tree-sitter-rust` 0.24.2, `-typescript` 0.23.2, `-javascript` 0.25.0, `-python` 0.25.0, `-go` 0.25.0 | | each exports `LANGUAGE` + `TAGS_QUERY`; static link, ~5 MB total (estimate) |
 | Walk + globs | `ignore` + `globset` | 0.4.33 / 0.4.20 | ripgrep's; parallel walker with per-thread state |
@@ -863,7 +862,7 @@ are rejected at read time.
 
 ## 11. Build order
 
-The version labels in @ref[#design/scope] are milestones, not releases: everything below is built in
+The version labels in the original design's scope section are milestones, not releases: everything below is built in
 succession before the first public release, so the core is designed for the final shape from
 step 1 (the @[Index] update/remove API, the DTO-decoupled JSON schema, and the
 @ref[crates/anchr-core/src/text/language/language.rs#LanguageSpec] table all exist because steps 9–11 need
@@ -912,7 +911,7 @@ Each numbered step is one PR-sized unit and independently testable.
 
 ---
 
-## 12. Decisions that deviate from @ref[DESIGN.md] / @ref[DISTRIBUTION.md]
+## 12. Decisions that deviate from @ref[docs/DESIGN.md] / @ref[DISTRIBUTION.md]
 
 All approved with the design; each is independent, so any one can be reversed without
 disturbing the rest.
@@ -1109,4 +1108,4 @@ Refinements the code made to the design above, recorded so the document stays th
     stopping at the nearest `.git`, after a copy of this repository under `~/.claude` lost
     its `docs/research` directory to an unanchored `research/` line in `~/.claude/.gitignore`; ripgrep
     `.ignore` files stopped being read. Design and the superseded reasoning in
-    @ref[docs/design/ignores.md] §8.
+    the rejected alternatives of @ref[docs/ARCHITECTURE.md].

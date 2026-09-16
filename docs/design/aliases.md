@@ -6,15 +6,14 @@ tags: [design, markers, index]
 
 # Alias imports — file-scoped names for references
 
-**Status:** implemented; §7 lists the stages as they were built. Companion to
-@ref[DESIGN.md] (the guarantee) and @ref[CODE_DESIGN.md] (the pipeline this extends).
+**Status:** implemented. Companion to @ref[docs/DESIGN.md] (the guarantee) and
+@ref[docs/ARCHITECTURE.md] (the pipeline this extends).
 <!-- refs -->
 @ref[crates/anchr-core/src/text/text.rs#FileAnalyzer as FileAnalyzer]
 @ref[crates/anchr-core/src/resolve/resolve.rs#Unresolved as Unresolved]
 @ref[#cli/check as Check]
 @ref[#cli/coverage as Coverage]
 @ref[#cli/backrefs as Backrefs]
-@ref[#cli/annotate as Annotate]
 @ref[#cli/init as Init]
 @noref[src/as/x.rs, docs/x.md]
 
@@ -266,41 +265,20 @@ teaches these.
 - **One alias per thing per file.** If a file needs two `Auth`s, it names them `UserAuth` and
   `AdminAuth`. That is the ambiguity being dissolved, not worked around.
 
-## 7. Pipeline changes
+## 7. Where it lives
 
-Names refer to @ref[crates/anchr-core/src/] unless noted; each item is one PR in the stack.
-
-1. **Grammar and lexing.** @ref[crates/anchr-core/src/marker/alias/alias.rs] (new):
-   @ref[crates/anchr-core/src/marker/alias/alias.rs#Alias] newtype with allowlist and limits.
-   @ref[crates/anchr-core/src/marker/target/target.rs#parse_target] tokenises the body first, runs the
-   existing grammar on the target token, and shifts spans by the token's offset. The regex above;
-   `MarkerKind::Use`, `MarkerPayload::Use`, an alias on `MarkerPayload::Ref`; a malformed reason
-   for invalid aliases. Existing exhaustive matches learn to ignore uses; fuzz targets `lex` and
-   `parse-target` cover the new shapes. Green on its own: no `@[` exists in scanned files today.
-2. **Binding and diagnostics.** The per-file alias table in
-   @ref[crates/anchr-core/src/index/index.rs#FileRecord], built when a file is indexed and looked up
-   lazily so the table is the single owner. @[Backrefs] chains direct references with bound uses;
-   a reference site records whether it came through an alias so @ref[#cli/rename] skips uses
-   explicitly. `AliasUndeclared` and `AliasDuplicate`; the summary's
-   `alias_uses`; JSON codes `alias-undeclared` and `alias-duplicate` (schema stays 1, the change
-   is additive); the human summary line.
-3. **@[Coverage].** Per-file, case-sensitive matches against that file's aliases: an inline code span
-   whose whole content is an alias (high confidence) and a bare word outside links (lower; an alias
-   like `Scope` matches English) become `@[X]` proposals that @[Annotate] applies. Unused aliases
-   are advisories, excluded from the proposal list and from the total, since they are not
-   reference-shaped strings. Bound uses count as annotated.
-4. **Language server** (@ref[crates/context-anchors/src/lsp/server/server.rs]). Definition on a use
-   returns the target's locations plus the declaration; references synthesize the target from the
-   binding; rename disambiguates by cursor offset; document symbols list declarations.
-5. **Documentation and dogfood.** @ref[#design/grammar], the README, the @[Init] template, and the
-   code-level design are updated; this repository's own documents convert their repeated mentions
-   to aliases with an index block per file, and the before/after coverage numbers are recorded.
-
-### Security posture
-
-An alias is an allowlisted, bounded newtype (@ref[CODE_DESIGN.md] §10, input bounds). The per-file
-table is bounded by the marker count, itself bounded by `max-file-bytes`. Suggestions run over one
-file's aliases. No new filesystem reads. The lexer stays a single linear-time regex.
+- The `Alias` newtype: @ref[crates/anchr-core/src/marker/alias/alias.rs]. Allowlisted and bounded
+  like every other newtype in the grammar, so the per-file table is bounded by the marker count.
+- Tokenising `target as Alias`: @ref[crates/anchr-core/src/marker/target/target.rs#parse_target].
+- The per-file alias table and use binding: @ref[crates/anchr-core/src/index/index.rs#FileRecord].
+  @[Backrefs] chains direct references with bound uses.
+- `AliasUndeclared` and `AliasDuplicate`, keyed by file:
+  @ref[crates/anchr-core/src/diagnostic/diagnostic.rs#DiagnosticKind]. JSON codes `alias-undeclared`
+  and `alias-duplicate`; the summary counts `alias_uses`.
+- @[Coverage] proposals for alias words and the `unused-alias` group:
+  @ref[crates/anchr-core/src/coverage/coverage.rs].
+- Alias rename, file-local: @ref[crates/anchr-core/src/rename/rename.rs]; exposed through the
+  language server in @ref[crates/context-anchors/src/lsp/server/server.rs].
 
 ## 8. Deferred, with reasoning
 <!-- @anchor[aliases/deferred] -->

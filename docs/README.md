@@ -7,6 +7,13 @@ How anchr is built, tested, and shipped. Each document says at the top when to r
 The user-facing guide is the repository README; the marker syntax users see is written by
 `anchr init`.
 
+## Core
+
+| Doc | Description | Tags |
+|---|---|---|
+| [Architecture](ARCHITECTURE.md) | How the code realises the design, as a pipeline, a codemap of every module, the key types, and the layer invariants. Read before adding a module, a stage, or a consumer of the core. | architecture, core, cli, lsp |
+| [Design](DESIGN.md) | What anchr promises and the rules the code must never break, from the marker grammar to the three diagnostic classes and the five invariants. Read before changing what a marker means or what check reports. | design, markers, invariants |
+
 ## Feature designs
 
 | Doc | Description | Tags |
