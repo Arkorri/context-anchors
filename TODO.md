@@ -27,8 +27,6 @@ this file only says what is not done yet.
 
 ## Code hygiene
 
-- `insta` is a dev-dependency of @ref[crates/anchr-core/Cargo.toml] but nothing in that crate uses
-  it.
 - @ref[.github/workflows/release.yml] runs `plan`, `host`, and `announce` on `ubuntu-22.04`, which
   @ref[dist-workspace.toml] says is retiring; the three workflows also pin different `checkout`
   and `setup-node` versions.
