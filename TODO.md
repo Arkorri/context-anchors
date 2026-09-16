@@ -1,0 +1,36 @@
+# TODO
+
+Open work items, one line each. The reasoning behind a product deferral lives in the design docs;
+this file only says what is not done yet.
+
+## Release pipeline
+
+- Move npm to trusted publishing: configure an OIDC publisher on all six packages, drop
+  `--provenance` from @ref[.github/workflows/publish-npm.yml], delete the `NPM_TOKEN` secret.
+- Release on a version bump instead of a hand-pushed tag: cargo-dist `dispatch-releases` in
+  @ref[dist-workspace.toml] plus a job on push to `main` that dispatches when no release matches.
+- Enable the Homebrew tap that cargo-dist already knows how to generate.
+- Sign and notarise binaries. Trigger: 1.0, or the first Gatekeeper report, whichever comes first.
+- Decide whether CI integration ships as a composite GitHub Action or as documentation for calling
+  the binary directly.
+
+## Product
+
+- Signature review ledger: `anchr review` reports declaration-signature drift, `anchr accept`
+  records a reviewer's sign-off. Non-blocking, separate from `check`.
+- Exported vs. internal anchors, so a cross-root anchor is an explicit contract.
+- MCP adapter, only if shelling out to the CLI proves insufficient for agents.
+- VS Code extension; other editors already work through `anchr lsp`.
+- A "full" grammar build or dynamic grammar loading beyond the bundled five languages.
+
+## Code hygiene
+
+- `insta` is a dev-dependency of @ref[crates/anchr-core/Cargo.toml] but nothing in that crate uses
+  it.
+- @ref[.github/workflows/release.yml] runs `plan`, `host`, and `announce` on `ubuntu-22.04`, which
+  @ref[dist-workspace.toml] says is retiring; the three workflows also pin different `checkout`
+  and `setup-node` versions.
+- The integration-test `Fixture` struct is copied across @ref[crates/context-anchors/tests/cli.rs],
+  @ref[crates/context-anchors/tests/coverage.rs], and @ref[crates/context-anchors/tests/tools.rs]
+  with small differences.
+- `anchr coverage` reports 13 `@noref` entries under @ref[scripts/] that never match anything.

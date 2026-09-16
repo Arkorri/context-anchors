@@ -326,7 +326,7 @@ prunes any entry named `.git` at any depth and any entry `config.ignore.paths` m
 `require_git(true)` makes `.gitignore` behave exactly as git does: it applies only inside a
 repository, and parent `.gitignore` files stop at the nearest `.git`. The earlier
 `require_git(false)` read every `.gitignore` up to the filesystem root, so a copy of this
-repository under `~/.claude` lost @ref[docs/research/] to an unanchored `research/` line in
+repository under `~/.claude` lost its `docs/research` directory to an unanchored `research/` line in
 `~/.claude/.gitignore` (§12a item 20). ripgrep `.ignore` files are off: the knobs are
 `.gitignore` and `[ignore] paths`, nothing else. `paths` is a
 @ref[crates/anchr-core/src/config/config.rs#IgnoreConfig] `Gitignore` built from the config lines and
@@ -1107,23 +1107,6 @@ Refinements the code made to the design above, recorded so the document stays th
     body simply cannot spell `[`, `]`, or a bare comma. In the same change `.gitignore` handling
     became git's own (`require_git(true)`): honoured only inside a repository, parent files
     stopping at the nearest `.git`, after a copy of this repository under `~/.claude` lost
-    @ref[docs/research/] to an unanchored `research/` line in `~/.claude/.gitignore`; ripgrep
+    its `docs/research` directory to an unanchored `research/` line in `~/.claude/.gitignore`; ripgrep
     `.ignore` files stopped being read. Design and the superseded reasoning in
     @ref[docs/design/ignores.md] §8.
-
-## 13. Research appendix
-
-The research this design rests on lives in @ref[docs/research/]:
-
-- @ref[docs/research/rust-security-best-practices-digest.md] — corgea checklist (25 items) with a
-  mapping onto a filesystem-walking, tree-sitter, TOML-config, JSON-emitting CLI. §10 is derived
-  from it.
-- @ref[docs/research/crate-survey.md] — 15 areas, versions verified on crates.io 2026-09-04, API
-  sketches, gotchas. §6 is derived from it.
-- @ref[docs/research/code-design-review.md] — 25 findings against the draft of this document, all
-  incorporated. The three blockers were: include globs as `ignore` overrides bypassing `.gitignore`,
-  false `SymbolMissing` on error-bearing parse trees, and case-insensitive path resolution making
-  @[Check] platform-dependent.
-
-Survey caveats to verify during implementation: compiled grammar sizes are estimates; `ignore`
-override-vs-gitignore precedence is pinned by a spike test in build step 1 rather than assumed.

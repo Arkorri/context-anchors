@@ -1,3 +1,9 @@
+---
+title: Alias imports
+description: Why a file declares a target once and uses a short name at every mention, with the grammar, binding rules, and diagnostics. Read before changing the marker grammar or the per-file alias table.
+tags: [design, markers, index]
+---
+
 # Alias imports — file-scoped names for references
 
 **Status:** implemented; §7 lists the stages as they were built. Companion to
