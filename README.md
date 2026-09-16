@@ -164,3 +164,8 @@ documented — extra roots, which paths to skip, and which strings to never sugg
 ## License
 
 MIT or Apache-2.0, at your option: @ref[LICENSE-MIT] and @ref[LICENSE-APACHE].
+
+## Developing
+
+The developer docs start at @ref[docs/README.md]: setup, architecture, code style, testing,
+distribution, and releasing.
