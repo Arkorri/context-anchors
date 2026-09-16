@@ -32,7 +32,7 @@ like a version. Jobs, in order:
 
 | Job | Does |
 |---|---|
-| `plan` | validates the tag against the version and lists every artifact |
+| `plan` | validates the tag against the version and lists every artifact; it, `host`, `announce`, and the global build run on the `global` runner pinned in @[DistConfig] |
 | `build-local-artifacts` | one runner per target, pinned in @[DistConfig] to current runner images |
 | `build-global-artifacts` | installer scripts and the manifest |
 | `host` | uploads and creates the GitHub Release. **From here the release is public.** |

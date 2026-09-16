@@ -27,9 +27,8 @@ this file only says what is not done yet.
 
 ## Code hygiene
 
-- @ref[.github/workflows/release.yml] runs `plan`, `host`, and `announce` on `ubuntu-22.04`, which
-  @ref[dist-workspace.toml] says is retiring; the three workflows also pin different `checkout`
-  and `setup-node` versions.
+- Bump cargo-dist to 0.33.0 (Azure signing for Windows; the shell installer moves its `env`
+  script into the app's config directory). Rehearse with an rc tag before a real release.
 - The integration-test `Fixture` struct is copied across @ref[crates/context-anchors/tests/cli.rs],
   @ref[crates/context-anchors/tests/coverage.rs], and @ref[crates/context-anchors/tests/tools.rs]
   with small differences.
