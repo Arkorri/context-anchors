@@ -29,7 +29,9 @@ node scripts/src/docs/gen-index.mjs                                 # after edit
 
 - **Every source file has a sibling test file**, `foo_tests.rs` beside `foo.rs`, declared at the
   bottom of the source file, never empty. Modules are directories wired with `#[path]`; there is
-  no `mod.rs`. A new module ships with its test file in the same commit.
+  no `mod.rs`. A new module ships with its test file in the same commit. The rule covers `src/`;
+  a support module inside the integration test binary is exercised by every test that imports it
+  and has no sibling.
 - **Findings are data, tool failures are errors.** A broken reference or a bad file goes into the
   report; `Err` means the tool could not run. The core never uses `anyhow`.
 - **No `unwrap` or `expect` in production code.** When one is unavoidable, use

@@ -30,7 +30,7 @@ fn report_with(errors: usize, unverified: usize) -> Report {
 }
 
 /// The exit contract: only errors fail. Inverting this is the classic silent regression, and it
-/// is what `tests/cli.rs` can only observe as nine unrelated failures.
+/// is what @ref[crates/context-anchors/tests/integration/cli.rs] can only observe as nine unrelated failures.
 #[test]
 fn only_errors_make_the_run_fail() {
     assert_eq!(outcome_for(&report_with(0, 0)), Outcome::Clean);

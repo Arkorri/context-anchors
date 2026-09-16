@@ -20,9 +20,9 @@ The plural is load-bearing: `cargo-llvm-cov` excludes `*_tests.rs` and a `tests/
 its report, so coverage measures production code only. A singular `_test.rs` would silently count
 test code as covered production lines.
 
-The test file starts with `use super::*;`, so it sees private items. Fixtures are built in
-`tempfile` directories by a small local helper (`Fixture`, `World`) inside the test file; there
-is no shared test-utilities crate. Test names are sentences
+The test file starts with `use super::*;`, so it sees private items. Unit-test fixtures are built
+by a small local helper (`World`) inside the test file; the integration binary shares one
+`Fixture` (§3). There is no shared test-utilities crate. Test names are sentences
 (`root_selection_separates_typos_from_absence_for_every_kind`), and a test that pins a
 non-obvious invariant carries a `///` comment saying which one.
 
@@ -59,14 +59,25 @@ does not otherwise consume.
 
 ## 3. Integration tests
 
-@ref[crates/context-anchors/tests/] drives the real binary with `assert_cmd` and `predicates` on
-tempdir fixtures: exit codes 0, 1, 2; `--format json` schema stability; `--strict`; `PATHS`
-filtering; bad-config caret rendering; `init` idempotency, `--force`, `--dry-run`, and settings
-merging that preserves foreign keys; `backrefs`, `rename`, `coverage`, `annotate`.
-@ref[crates/context-anchors/tests/lsp.rs] is a hand-rolled JSON-RPC client over the binary's
-stdio with a read timeout, so a protocol mistake fails instead of hanging.
+@ref[crates/context-anchors/tests/integration/] is one test binary that drives the real `anchr`
+with `assert_cmd` and `predicates` on tempdir fixtures. One binary rather than one crate per file,
+so the modules share a fixture and the dev-dependencies link once; tests share a process, so
+nothing may touch global state. A module per command: `cli` (exit codes 0, 1, 2; `--format json`
+schema stability; `--strict`; `PATHS` filtering; bad-config caret rendering), `init` (idempotency,
+`--force`, `--dry-run`, settings merging that preserves foreign keys), `tools` (`backrefs`,
+`rename`), `coverage` (`coverage`, `annotate`), and `lsp`, a hand-rolled JSON-RPC client over the
+binary's stdio with a read timeout, so a protocol mistake fails instead of hanging. Filter by
+module: `cargo test --test integration cli::`.
 
-The three `insta` snapshots beside @ref[crates/context-anchors/tests/cli.rs] pin the human report
+@ref[crates/context-anchors/tests/integration/support.rs] holds the one `Fixture`. Its
+constructor takes the files and nothing else: every fixture gets a `.git` marker, and every
+command runs with `NO_COLOR` removed and the home and git-config variables pointed at an empty
+directory inside the fixture, so the developer's global gitignore never reaches a test. A test
+that needs an unusual layout builds it through `root()` inside the test; a helper is promoted
+into the support module only when a second module wants it; the constructor never grows a
+parameter.
+
+The three `insta` snapshots beside @ref[crates/context-anchors/tests/integration/cli.rs] pin the human report
 (grouped by cause, with `--color never`) and the JSON report. The snapshot directory is in
 `[ignore] paths`, so it is neither scanned nor referenceable. After an intentional output change:
 
@@ -155,8 +166,13 @@ Warnings are errors in CI (`RUSTFLAGS: -D warnings`); run clippy the same way lo
 
 - Coverage floors over a per-file assertion mandate: a mandate is satisfied by a test that asserts
   nothing; a floor is not.
-- A shared test-utilities crate over local `Fixture` helpers: each file's fixture is a few lines
-  and differs in what it needs; a shared one would grow options for every caller.
+- One integration crate per file over one binary: each crate links the dev-dependencies again
+  and cannot share a module, so the fixture was pasted three times and the copies drifted (the
+  `.git` marker and the `NO_COLOR` scrub were lost on the way).
+- A workspace test-utilities crate over a support module in the integration binary: the core
+  crate's helpers build in-memory worlds, not repositories on disk, so there is nothing to share
+  yet; and a fixture with constructor options grows one for every caller, which is why the
+  support module's constructor takes none.
 - Checked-in fixture repositories over tempdir fixtures built inline: the fixture is readable
   next to the assertion, and nothing on disk drifts.
 - Snapshot tests for every report over three: the grouped human report, the relative-path

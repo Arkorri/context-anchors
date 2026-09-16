@@ -1,38 +1,8 @@
 //! `anchr backrefs` and `anchr rename` against fixture repositories.
-#![allow(clippy::unwrap_used, clippy::expect_used)]
 
-use std::fs;
-
-use assert_cmd::Command;
 use predicates::prelude::*;
 
-struct Fixture {
-    _dir: tempfile::TempDir,
-    root: std::path::PathBuf,
-}
-
-impl Fixture {
-    fn new(files: &[(&str, &str)]) -> Self {
-        let dir = tempfile::tempdir().unwrap();
-        let root = dir.path().join("repo");
-        for (path, contents) in files {
-            let full = root.join(path);
-            fs::create_dir_all(full.parent().unwrap()).unwrap();
-            fs::write(full, contents).unwrap();
-        }
-        Self { _dir: dir, root }
-    }
-
-    fn anchr(&self) -> Command {
-        let mut command = Command::cargo_bin("anchr").unwrap();
-        command.current_dir(&self.root);
-        command
-    }
-
-    fn read(&self, path: &str) -> String {
-        fs::read_to_string(self.root.join(path)).unwrap()
-    }
-}
+use crate::support::Fixture;
 
 #[test]
 fn backrefs_lists_every_site_in_both_formats() {

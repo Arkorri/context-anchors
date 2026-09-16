@@ -29,6 +29,3 @@ this file only says what is not done yet.
 
 - Bump cargo-dist to 0.33.0 (Azure signing for Windows; the shell installer moves its `env`
   script into the app's config directory). Rehearse with an rc tag before a real release.
-- The integration-test `Fixture` struct is copied across @ref[crates/context-anchors/tests/cli.rs],
-  @ref[crates/context-anchors/tests/coverage.rs], and @ref[crates/context-anchors/tests/tools.rs]
-  with small differences.

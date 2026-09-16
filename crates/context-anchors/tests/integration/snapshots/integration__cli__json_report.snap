@@ -1,5 +1,5 @@
 ---
-source: crates/context-anchors/tests/cli.rs
+source: crates/context-anchors/tests/integration/cli.rs
 expression: scrubbed
 ---
 {
