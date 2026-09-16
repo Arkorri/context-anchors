@@ -155,6 +155,7 @@ Every job in @[CiWorkflow] is a command you can run locally.
 | `check` (ubuntu, macos, windows) | format, clippy with warnings denied, all tests | `cargo fmt --all -- --check`; `cargo clippy --workspace --all-targets --all-features --locked`; `cargo test --workspace --locked --no-fail-fast` |
 | `coverage` | the floors in §8 | §8 |
 | `dogfood` | the repository's own references | §6 |
+| `action` (ubuntu, macos, windows) | the composite action at @ref[action.yml] installs the latest release and checks the repository with it, so it proves the install path on every platform and lags `dogfood` by one release: a PR that needs a flag newer than the last release turns it red until that release ships | none; `anchr check --strict --format github` with an installed binary is the equivalent |
 | `linguist-table` | the generated extension table is fresh | `node scripts/src/linguist/gen-extensions.mjs --check` |
 | `docs-index` | the generated docs index is fresh | `node scripts/src/docs/gen-index.mjs --check` |
 | `scripts` | script unit tests | §7 |

@@ -76,7 +76,8 @@ The parser lives in @ref[src/parse.rs].
 
 Delete or move that file and `anchr check` fails, naming every document that mentioned it.
 
-Run it in CI the same way you run a linter, and a broken reference fails the build.
+Run it in CI the same way you run a linter, and a broken reference fails the build; see
+[Continuous integration](#continuous-integration).
 
 ## Writing markers
 
@@ -153,6 +154,44 @@ reported as **unverified** rather than quietly passing. Those don't fail the run
 Installed as a devDependency, `anchr` is not on your `PATH`: prefix these with `npx`, or put them
 in a `package.json` script. The standalone installers and `npm install --global` give you the bare
 command.
+
+## Continuous integration
+
+A broken reference should fail the build. In a repository that already installs its npm
+dependencies, the lockfile pins the checker and one step is enough:
+
+```yaml
+- uses: actions/setup-node@v7
+  with:
+    node-version: 24
+- run: npm ci
+- run: npx context-anchors check --strict
+```
+
+On GitHub without Node, the action at the root of this repository installs the release its tag
+names and runs it. Findings appear as annotations on the pull-request diff:
+
+```yaml
+- uses: actions/checkout@v7
+- uses: Arkorri/context-anchors@v0.0.4
+```
+
+The defaults run `check --strict --format github` in the checkout on Linux, macOS, and Windows
+runners. Inputs: `version` (a release tag or `latest`; defaults to the tag the action was called
+with), `args` (the arguments to `anchr`), and `working-directory`.
+
+Anywhere else, the shell installer works in any CI job. It puts `anchr` in `~/.cargo/bin`, which
+the same step can use directly:
+
+```sh
+curl --proto '=https' --tlsv1.2 -LsSf \
+  https://github.com/Arkorri/context-anchors/releases/latest/download/context-anchors-installer.sh | sh
+"$HOME/.cargo/bin/anchr" check --strict
+```
+
+`--strict` fails the run on anything anchr could not verify as well as on broken references.
+Leave it off if your repository references files in a language anchr has no parser for. Add
+`--format github` on GitHub-hosted runners to get annotations without the action.
 
 ## Editor support
 

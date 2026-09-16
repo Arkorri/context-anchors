@@ -23,7 +23,9 @@ refuses a tag that disagrees with it.
    archives, a real GitHub prerelease, real npm packages published under the `next` dist-tag so
    they never claim `latest`.
 3. Tag `v<version>` on `main` and push it. Tags are pushed by hand, by choice; see Rejected
-   alternatives.
+   alternatives. The tag is also what the action pins: `uses: Arkorri/context-anchors@v<version>`
+   installs the release the tag names, and an rc tag works the same way, so the action can be
+   rehearsed against a prerelease.
 
 ## 2. What runs
 
@@ -124,6 +126,9 @@ publisher, revoke the token. That is how all six were created at 0.0.1.
   every package to the workflow run that built it.
 - One publish job over build, verify, publish: a broken platform would be discovered after five
   versions were already spent.
+- A moving `v0` tag for the action over exact tags: the action derives its download URL from its
+  own ref, so a moving tag would have to be re-pointed on every release and would still have to
+  name an exact release asset.
 - Shipping the built directory between jobs over packed tarballs: the executable bit does not
   survive the artifact zip.
 - `always()` on the publish job: it would run even when verify failed.

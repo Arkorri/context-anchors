@@ -11,6 +11,9 @@ Notable changes to `context-anchors`. This project follows [semantic versioning]
 - `anchr check --format github`: the human report followed by one GitHub Actions annotation per
   location, so findings appear on the pull-request diff. Paths are relative to
   `GITHUB_WORKSPACE` when it is set.
+- A composite GitHub Action: `uses: Arkorri/context-anchors@v<version>` installs that release
+  and runs `check --strict --format github`. Inputs `version`, `args`, `working-directory`.
+- A README section on continuous integration: npm, the action, and the shell installer.
 
 ### Changed
 

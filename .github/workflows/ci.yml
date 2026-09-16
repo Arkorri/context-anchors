@@ -52,6 +52,21 @@ jobs:
       - uses: Swatinem/rust-cache@v2
       - run: cargo run --locked --bin anchr -- check --strict --color never
 
+  # The composite action installs the *latest release* and checks the current docs with it, so
+  # this proves the install path on every platform, not the code under review (dogfood does).
+  action:
+    name: the action installs a release and checks the repo
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, macos-latest, windows-latest]
+    steps:
+      - uses: actions/checkout@v7
+      - uses: ./
+        with:
+          version: latest
+
   linguist-table:
     name: generated Linguist table is fresh
     runs-on: ubuntu-latest
