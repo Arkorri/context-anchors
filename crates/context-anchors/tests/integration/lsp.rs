@@ -1,10 +1,6 @@
 //! Drives `anchr lsp` over stdio with a minimal JSON-RPC client. Reads run on a thread with a
 //! timeout so a protocol mistake fails the test instead of hanging it.
-#![allow(
-    clippy::unwrap_used,
-    clippy::expect_used,
-    clippy::needless_pass_by_value
-)]
+#![allow(clippy::needless_pass_by_value)]
 
 use std::io::{BufRead, BufReader, Write};
 use std::process::{Child, ChildStdin, Command, Stdio};

@@ -1,5 +1,5 @@
 ---
-source: crates/context-anchors/tests/cli.rs
+source: crates/context-anchors/tests/integration/cli.rs
 expression: stdout
 ---
 error: malformed @ref: invalid target `../../x.md`: relative path leaves the root: more `../` than directories above this file

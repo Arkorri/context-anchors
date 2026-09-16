@@ -1,57 +1,11 @@
-//! End-to-end runs of the `anchr` binary against fixture repositories built in temp dirs.
-#![allow(clippy::unwrap_used, clippy::expect_used)]
+//! End-to-end runs of `anchr check` against fixture repositories built in temp dirs.
 
-use std::fs;
 use std::path::Path;
 
 use assert_cmd::Command;
 use predicates::prelude::*;
 
-struct Fixture {
-    dir: tempfile::TempDir,
-}
-
-impl Fixture {
-    fn new(files: &[(&str, &str)]) -> Self {
-        let dir = tempfile::tempdir().unwrap();
-        let root = dir.path().join("repo");
-        // A `.git` marker: `.gitignore` files carry weight only inside a repository.
-        fs::create_dir_all(root.join(".git")).unwrap();
-        for (path, contents) in files {
-            let full = root.join(path);
-            fs::create_dir_all(full.parent().unwrap()).unwrap();
-            fs::write(full, contents).unwrap();
-        }
-        Self { dir }
-    }
-
-    fn root(&self) -> std::path::PathBuf {
-        self.dir.path().join("repo")
-    }
-
-    fn anchr(&self) -> Command {
-        let mut command = Command::cargo_bin("anchr").unwrap();
-        command.current_dir(self.root()).env_remove("NO_COLOR");
-        command
-    }
-
-    fn check_json(&self, extra: &[&str]) -> (i32, serde_json::Value) {
-        let output = self
-            .anchr()
-            .args(["check", "--format", "json"])
-            .args(extra)
-            .output()
-            .unwrap();
-        let code = output.status.code().unwrap();
-        let json: serde_json::Value = serde_json::from_slice(&output.stdout).unwrap_or_else(|e| {
-            panic!(
-                "invalid json ({e}): {}",
-                String::from_utf8_lossy(&output.stdout)
-            )
-        });
-        (code, json)
-    }
-}
+use crate::support::Fixture;
 
 /// Temp paths differ per run, may be reached through a symlink (macOS `/var` →
 /// `/private/var`), and appear with doubled backslashes inside JSON strings on Windows;
@@ -112,7 +66,7 @@ fn broken_references_exit_one_and_render_grouped_by_cause() {
         .output()
         .unwrap();
     assert_eq!(output.status.code(), Some(1));
-    let stdout = scrub(&String::from_utf8(output.stdout).unwrap(), &fixture.root());
+    let stdout = scrub(&String::from_utf8(output.stdout).unwrap(), fixture.root());
     insta::assert_snapshot!("human_grouped_by_cause", stdout);
 }
 
@@ -134,7 +88,7 @@ fn json_output_has_a_stable_schema() {
     let (code, json) = fixture.check_json(&[]);
     assert_eq!(code, 1);
     let scrubbed: serde_json::Value =
-        serde_json::from_str(&scrub(&json.to_string(), &fixture.root())).unwrap();
+        serde_json::from_str(&scrub(&json.to_string(), fixture.root())).unwrap();
     insta::assert_json_snapshot!("json_report", scrubbed);
 }
 
@@ -230,7 +184,8 @@ fn root_flag_starts_discovery_elsewhere() {
     let fixture = Fixture::new(&[("nested/deep/a.md", "@ref[#nope]\n")]);
     let root = fixture.root();
     let mut command = Command::cargo_bin("anchr").unwrap();
-    command.current_dir(fixture.dir.path());
+    // From the directory above the repository, so `--root` is the only way in.
+    command.current_dir(root.parent().unwrap());
     let (stdout, code) = {
         let output = command
             .args(["check", "--format", "json", "--root"])
@@ -332,7 +287,7 @@ fn relative_targets_that_leave_the_root_or_carry_a_root_prefix_are_malformed() {
         .output()
         .unwrap();
     assert_eq!(output.status.code(), Some(1));
-    let stdout = scrub(&String::from_utf8(output.stdout).unwrap(), &fixture.root());
+    let stdout = scrub(&String::from_utf8(output.stdout).unwrap(), fixture.root());
     insta::assert_snapshot!("human_relative_malformed", stdout);
 }
 

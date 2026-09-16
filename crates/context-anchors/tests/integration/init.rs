@@ -1,5 +1,4 @@
 //! `anchr init`: writes config and guide, wires the Claude Code hook, and is idempotent.
-#![allow(clippy::unwrap_used, clippy::expect_used)]
 
 use std::fs;
 
