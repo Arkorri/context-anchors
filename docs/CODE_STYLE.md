@@ -105,7 +105,7 @@ Comment only where a competent reader would otherwise be wrong. Names carry the 
 - Comments carry live markers: a comment that names a file, a declaration, or an anchor writes
   `@ref[...]`, and the repository checks its own comments in CI. Example strings that look like
   paths go in a `@noref[...]` comment near the top of the file.
-- No `TODO` in code. Open work lives in @ref[TODO.md].
+- No `TODO` in code. Open work is tracked in GitHub issues, not in the repository.
 
 ## 6. Untrusted input
 <!-- @anchor[code/security] -->

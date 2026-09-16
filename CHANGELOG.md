@@ -2,6 +2,17 @@
 
 Notable changes to `context-anchors`. This project follows [semantic versioning](https://semver.org).
 
+## [Unreleased]
+
+### Added
+
+- A Homebrew tap: `brew install Arkorri/tap/context-anchors`. The formula is generated from the
+  macOS and Linux release archives and published on every release, prereleases included.
+
+### Changed
+
+- cargo-dist 0.33.0 generates the release workflow.
+
 ## [0.0.3] - 2026-09-15
 
 ### Changed
