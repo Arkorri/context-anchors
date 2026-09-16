@@ -1,4 +1,4 @@
-// @noref[scripts/src/linguist/gen-extensions.mjs, languages.yml]
+// @noref[languages.yml]
 import assert from "node:assert/strict";
 import { test } from "node:test";
 

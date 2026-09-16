@@ -1,6 +1,5 @@
 // Locates the repository root by looking for the workspace manifest rather than by counting
 // `..` segments, so moving a script does not silently redirect the paths it reads and writes.
-// @noref[scripts/src/repo-root.mjs]
 
 import { existsSync } from "node:fs";
 import { dirname, join, parse } from "node:path";

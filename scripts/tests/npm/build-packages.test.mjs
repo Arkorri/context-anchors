@@ -1,4 +1,3 @@
-// @noref[scripts/src/npm/build-packages.mjs, bin/anchr.js]
 import assert from "node:assert/strict";
 import { mkdtempSync, mkdirSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";

@@ -1,5 +1,6 @@
-// The contract between the three jobs in @noref[.github/workflows/publish-npm.yml]: `build` packs
+// The contract between the three jobs in @ref[.github/workflows/publish-npm.yml]: `build` packs
 // the tarballs and writes `packages.json` beside them, `verify` and `publish` read it back.
+// @noref[packages.json, npm.cmd]
 //
 // Tarballs rather than a directory tree because `actions/upload-artifact` zips its payload, and zip
 // does not carry the executable bit. The platform binary is not a declared `bin` entry — the shim
