@@ -7,7 +7,7 @@ tags: [design, coverage, config]
 # Ignores — which paths anchr looks at, which strings it proposes
 
 **Status:** implemented. Companion to @ref[./aliases.md] (the construct that made the
-remaining coverage candidates visible) and @ref[CODE_DESIGN.md] (the pipeline this extends).
+remaining coverage candidates visible) and @ref[docs/ARCHITECTURE.md] (the pipeline this extends).
 <!-- refs -->
 @ref[#cli/check as Check]
 @ref[#cli/coverage as Coverage]
@@ -17,7 +17,7 @@ remaining coverage candidates visible) and @ref[CODE_DESIGN.md] (the pipeline th
 @ref[crates/anchr-core/src/marker/noref/noref.rs#NoRefEntry as NoRefEntry]
 @ref[crates/anchr-core/src/noref/noref.rs#NoRefSet as NoRefSet]
 @ref[crates/anchr-core/src/config/config.rs#IgnoreConfig as IgnoreConfig]
-@noref[foo.ts, src/file.ts, src/x.ts, docs/CLAUDE.md, crates/x/src/lib.rs, research/, /research/, drafts/, build/, .claude/, .claude/skills/]
+@noref[foo.ts, src/file.ts, src/x.ts, docs/CLAUDE.md, crates/x/src/lib.rs, research/, drafts/, build/]
 
 ## 1. Problem
 
@@ -173,7 +173,7 @@ fence is unused, correctly: it protects nothing.
 - @[Annotate] acts on proposals only; its output shrinks, its behaviour does not change.
 - The marker's own span is already excluded from candidate scanning, so its entries are never
   proposed against themselves.
-- Invariants (@ref[DESIGN.md] §8): deterministic (a pure function of config and file bytes), opt-in
+- Invariants (@ref[docs/DESIGN.md] §6): deterministic (a pure function of config and file bytes), opt-in
   (nothing is ignored unless written), unverifiable never renders valid (ignores remove
   candidates, they never mark anything resolved), grouped by cause (one advisory per entry).
 
@@ -191,17 +191,3 @@ fence is unused, correctly: it protects nothing.
   directory of that name should go.
 - Never ignore a wrong-target proposal. File it against the classifier.
 
-## 8. Superseded decisions
-
-The first version of this design had `[coverage] ignore` (exact match, plus the path half of
-`path#Symbol`, plus a prefix match for entries ending in `/`), `[coverage] exclude` (files
-checked but never proposed), `[scan] exclude`, and `.anchrignore`, and said "vocabularies are
-exact; if globs are ever needed, that is a separate key". Three things changed it:
-
-- The trailing-slash rule had already broken exactness, invisibly: `src/` in this repository's
-  own config suppressed every `src/...` mention, and `.claude/` would have suppressed every
-  skill under `.claude/skills/`. An explicit `**` is what the rule was pretending not to be.
-- Five knobs for two questions. `[scan] exclude` was even compiled twice, as globset for the
-  "why is this missing" note and as gitignore for the walk, with two different syntaxes.
-- "Checked but never proposed" earned no place. Its one use here, archived research, is served
-  by annotating the handful of real references and `@noref`-ing the rest.

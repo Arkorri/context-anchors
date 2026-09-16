@@ -1,7 +1,7 @@
 # Distribution
 
 **Status:** implemented for the binary channels; §4 records what ships at 0.0.1.
-**Companion to:** @ref[DESIGN.md] — that document covers what the tool is; this one covers how it
+**Companion to:** @ref[docs/DESIGN.md] — that document covers what the tool is; this one covers how it
 ships.
 
 ---
@@ -254,7 +254,7 @@ detects, rather than a separate maintained artifact per vendor.
 
 ### Note on MCP
 
-@ref[DESIGN.md] defers MCP to v2 on the grounds that agents can shell out to the CLI. That reasoning
+@ref[docs/DESIGN.md] defers MCP to v2 on the grounds that agents can shell out to the CLI. That reasoning
 holds for **capability** but not for **distribution** — MCP is the only integration surface that
 is vendor-neutral by construction.
 
@@ -296,7 +296,7 @@ permissive is the only sensible choice.
 1. **Defensive reservation of `anchr`.** Decided 2026-09-08: no. Nobody types the command name
    into a registry; `context-anchors` is the package everywhere, and a placeholder is clutter.
 2. **Is MCP a v1 requirement?** Depends entirely on whether cross-vendor reach is a launch goal
-   or a follow-up. If launch, it moves up from @ref[DESIGN.md] v2.
+   or a follow-up. If launch, it moves up from @ref[docs/DESIGN.md] v2.
 3. **Which grammars make the core bundle?** Driven by where the tool is actually used first.
 4. **Does the CI action ship as a composite GitHub Action, or as documentation for calling the
    binary directly?** The action is friendlier; the documentation is portable to GitLab, Buildkite,
