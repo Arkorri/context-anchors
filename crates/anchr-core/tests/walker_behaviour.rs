@@ -103,7 +103,7 @@ fn whitelist_override_bypasses_gitignore_so_include_must_be_a_post_filter() {
     assert!(
         names.contains(&"generated.md".to_owned()),
         "if this starts failing, `ignore` changed override precedence and include globs could \
-         move back into overrides; see CODE_DESIGN.md §3.3"
+         move back into overrides; see docs/ARCHITECTURE.md §4, Scan"
     );
 }
 

@@ -31,7 +31,7 @@ mentions. Those nine are exactly the rot the tool exists to catch, and without a
 neither @[Check] nor @[Coverage] can see them: @[Check] only knows about markers, and
 @[Coverage] never treats a bare identifier as a candidate, because most backticked words are
 `HashMap` and the ones that do name a declaration have no single referent
-(@ref[CODE_DESIGN.md] §12a item 16).
+(the rejected alternatives of @ref[docs/ARCHITECTURE.md]).
 
 The convention adopted in the dogfood pass, "annotate the first mention per section", papers over
 this and fails the one test an authoring rule has to pass: the writer cannot decide from the
@@ -131,7 +131,7 @@ is case-sensitive; `as` as an alias *name* is legal and harmless. `as` as a path
 (`src/as/x.rs`) is untouched because it contains no whitespace.
 
 **Alias charset is ASCII identifier.** The same allowlist posture as every other newtype in the
-grammar (@ref[CODE_DESIGN.md] §10). No `/`, `.`, or `-`: an alias is a name, not a path or an id,
+grammar (@ref[docs/CODE_STYLE.md] §6). No `/`, `.`, or `-`: an alias is a name, not a path or an id,
 and disjoint charsets mean an alias can never be mistaken for a target in a diagnostic. The
 newtype mirrors @ref[crates/anchr-core/src/marker/symbol/symbol.rs#SymbolName].
 
