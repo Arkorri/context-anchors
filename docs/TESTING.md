@@ -219,6 +219,11 @@ an error, so the `generated` job (§9) builds the site on every pull request and
 reaches `main`. Markers in fences and inline code are left as written, which is how the guide
 shows the syntax. The mdBook version both workflows install is pinned in the script.
 
+The look is @ref[site/theme/]: a stylesheet with the site's two palettes, a script that
+colours example output the way the terminal does, the fonts, and the favicon. mdBook's own
+template is not overridden, so a new mdBook version needs no merge. Check a change to the
+theme in a browser, in both palettes; nothing else exercises it.
+
 ```sh
 node scripts/src/site/build.mjs && mdbook build site     # or `mdbook serve site` to preview
 ```
