@@ -1,0 +1,58 @@
+name: Pages
+
+# Publishes the user guide to https://arkorri.github.io/context-anchors/. The site is a build
+# product of docs/guide/ (see site/book.toml); nothing generated is committed. Pull requests do
+# not deploy, but CI's `generated` job builds the same site, so a broken page fails there first.
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - docs/guide/**
+      - site/**
+      - scripts/src/**
+      - .github/workflows/pages.yml
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+# One deployment at a time, and never cancelled: a cancelled deploy can leave Pages serving a
+# half-uploaded artifact.
+concurrency:
+  group: pages
+  cancel-in-progress: false
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-node@v7
+        with:
+          node-version: 24
+      - name: install mdbook
+        run: |
+          version=$(node scripts/src/site/build.mjs --mdbook-version)
+          curl --proto '=https' --tlsv1.2 -LsSf "https://github.com/rust-lang/mdBook/releases/download/v${version}/mdbook-v${version}-x86_64-unknown-linux-gnu.tar.gz" | tar -xz -C "$RUNNER_TEMP"
+          echo "$RUNNER_TEMP" >> "$GITHUB_PATH"
+      - run: node scripts/src/site/build.mjs
+      - run: mdbook build site
+      - uses: actions/upload-pages-artifact@v5
+        with:
+          path: site/book
+
+  deploy:
+    needs: build
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    permissions:
+      pages: write
+      id-token: write
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    steps:
+      - uses: actions/deploy-pages@v5
+        id: deployment
