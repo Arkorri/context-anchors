@@ -1,0 +1,22 @@
+# The documentation site, rendered by mdBook and published to GitHub Pages on every push to
+# main that touches the guide. The pages are written in docs/guide/ with anchr's markers, so this
+# repository checks them; scripts/src/site/build.mjs copies them into docs/guide/ here with the markers
+# rewritten as links and writes SUMMARY.md in sidebar order. docs/ and book/ here are generated and
+# ignored by git.
+#
+#   node scripts/src/site/build.mjs && mdbook serve site
+
+[book]
+title = "context-anchors"
+description = "Your docs point at your code. anchr tells you when they stop matching."
+authors = ["Arkorri"]
+language = "en"
+src = "docs/guide"
+
+[build]
+build-dir = "book"
+
+[output.html]
+site-url = "/context-anchors/"
+git-repository-url = "https://github.com/Arkorri/context-anchors"
+edit-url-template = "https://github.com/Arkorri/context-anchors/edit/main/{path}"

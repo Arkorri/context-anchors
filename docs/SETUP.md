@@ -26,6 +26,7 @@ Cargo tools, installed once:
 cargo install cargo-llvm-cov cargo-insta cargo-deny --locked   # coverage, snapshots, supply chain
 cargo install cargo-fuzz --locked                               # fuzzing (needs nightly)
 cargo install cargo-dist --locked                               # only when touching releases
+cargo install mdbook --locked                                   # only when touching the user guide
 ```
 
 ## Build and run
@@ -52,13 +53,15 @@ cargo run --locked --bin anchr -- check --strict --color never
 node --test 'scripts/tests/**/*.test.mjs'
 node scripts/src/linguist/gen-extensions.mjs --check
 node scripts/src/docs/gen-index.mjs --check
+node scripts/src/site/build.mjs && mdbook build site
 cargo deny check
 dist plan
 ```
 
 Set `RUSTFLAGS=-D warnings` to match CI exactly. Coverage floors and fuzz smoke runs are in
-@[Testing] §8 and §5. `dist plan` only matters after editing @ref[dist-workspace.toml] and
-needs cargo-dist at the version that file names.
+@[Testing] §8 and §5. The site build only matters after editing the user guide (@[Testing]
+§11). `dist plan` only matters after editing @ref[dist-workspace.toml] and needs cargo-dist at
+the version that file names.
 
 ## Working on the docs
 
@@ -73,6 +76,13 @@ node scripts/src/docs/gen-index.mjs
 Anything that names a file, a declaration, or a section is an `@ref`, and `anchr check` fails
 the build if it stops resolving. The marker syntax is in @ref[docs/DESIGN.md] §3; authoring
 conventions for this repository are in @[Testing] §6.
+
+The user guide under @ref[docs/guide/] is written the same way and published as a site. To see
+a page as a reader will, with the markers rendered as links:
+
+```sh
+node scripts/src/site/build.mjs && mdbook serve site
+```
 
 ## Language server in an editor
 

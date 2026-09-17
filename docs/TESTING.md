@@ -162,7 +162,7 @@ timeout. Every job is a command you can run locally.
 | `rust` (ubuntu, macos, windows) | format, clippy with warnings denied, all tests, then the repository's own references (§6) | `cargo fmt --all -- --check`; `cargo clippy --workspace --all-targets --all-features --locked`; `cargo test --workspace --locked --no-fail-fast`; `cargo run --locked --bin anchr -- check --strict` |
 | `coverage` | the floors in §8; a separate instrumented build, so its test run is the measurement and not a repeat | §8 |
 | `msrv` | the workspace and its tests type-check on Rust 1.85 | `cargo +1.85 check --workspace --all-targets --locked` |
-| `generated` | script unit tests (§7); the generated extension table and docs index are fresh; the generated release workflow is fresh against @ref[dist-workspace.toml] | `node --test 'scripts/tests/**/*.test.mjs'`; `node scripts/src/linguist/gen-extensions.mjs --check`; `node scripts/src/docs/gen-index.mjs --check`; `dist plan` |
+| `generated` | script unit tests (§7); the generated extension table and docs index are fresh; the user guide builds as a site (§11); the generated release workflow is fresh against @ref[dist-workspace.toml] | `node --test 'scripts/tests/**/*.test.mjs'`; `node scripts/src/linguist/gen-extensions.mjs --check`; `node scripts/src/docs/gen-index.mjs --check`; `node scripts/src/site/build.mjs && mdbook build site`; `dist plan` |
 | `supply-chain` | advisories, licenses, bans, sources | `cargo deny check` |
 | `action` (ubuntu, macos, windows) | the composite action at @ref[action.yml] installs the latest release and checks the repository with it, so it proves the install path on every platform and lags `rust` by one release: a PR that needs a flag newer than the last release turns it red until that release ships | none; `anchr check --strict --format github` with an installed binary is the equivalent |
 | `fuzz` (five targets) | 60 seconds per target on nightly | §5 |
@@ -204,6 +204,24 @@ If concurrent contributors ever make "not strict" insufficient, the upgrade is a
 add `merge_group:` to the workflow's triggers and a `merge_queue` rule to the ruleset. Nothing
 in the generated release workflow is involved, because the `dist plan` check already runs in
 @[CiWorkflow].
+
+## 11. The documentation site
+<!-- @anchor[tests/site] -->
+
+The user guide under @ref[docs/guide/] is published at https://arkorri.github.io/context-anchors/
+by @ref[.github/workflows/pages.yml], which runs on a push to `main` that touches the guide, the
+site config, or the scripts, and never on a pull request. The pages are written with this
+repository's markers so that `anchr check` covers them (§6); @ref[scripts/src/site/build.mjs]
+copies them under @ref[site/] with every marker rewritten as a link and writes the sidebar, and
+mdBook renders the result with @ref[site/book.toml]. The rewrite is the site's test: an alias
+with no declaration, an anchor declared outside the guide, or a reference into another root is
+an error, so the `generated` job (§9) builds the site on every pull request and a dead link never
+reaches `main`. Markers in fences and inline code are left as written, which is how the guide
+shows the syntax. The mdBook version both workflows install is pinned in the script.
+
+```sh
+node scripts/src/site/build.mjs && mdbook build site     # or `mdbook serve site` to preview
+```
 
 ## Rejected alternatives
 
