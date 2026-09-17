@@ -18,5 +18,9 @@ build-dir = "book"
 
 [output.html]
 site-url = "/context-anchors/"
+# The theme a first visit gets; the header menu still offers the others, and a choice made
+# there is remembered by the browser.
+default-theme = "ayu"
+preferred-dark-theme = "ayu"
 git-repository-url = "https://github.com/Arkorri/context-anchors"
 edit-url-template = "https://github.com/Arkorri/context-anchors/edit/main/{path}"
