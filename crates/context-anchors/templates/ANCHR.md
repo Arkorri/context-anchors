@@ -2,7 +2,8 @@
 
 This project uses two markers so that references in prose and code comments can be checked
 like code. `anchr check` fails when a reference no longer resolves and reports every place
-that still uses the old name.
+that still uses the old name. This page is the short form; the full guide is at
+https://arkorri.github.io/context-anchors/.
 
 ## Markers
 
