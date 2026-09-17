@@ -237,6 +237,9 @@ table tbody tr:nth-child(2n) { background: var(--table-alternate-bg); }
 .sidebar .chapter li { line-height: 1.5; }
 .sidebar .chapter li a { padding: 0.35em 0; }
 .sidebar .chapter li a.active { border-inline-start: 2px solid var(--sidebar-active); padding-inline-start: 0.6em; margin-inline-start: -0.6em; }
+/* In the navigation the accent means "current" or "hovered", nothing else: code in an entry
+   takes the entry's colour instead of the inline-code colour, so the whole label shifts together. */
+.sidebar code { color: inherit; background: none; padding: 0; }
 
 /* ---- Diagnostics ----------------------------------------------------------------------- */
 
