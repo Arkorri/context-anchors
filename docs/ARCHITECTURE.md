@@ -240,9 +240,9 @@ no `file` and the location moves into the message. Every location is emitted; th
 a reading aid for the human form only, and `col` is the same 1-based byte column the JSON carries.
 @[Coverage] has its own renderer: one group per (verdict, token), no snippets.
 
-Subcommands and flags are documented by `anchr --help` and the README. `PATHS` filters which
-files' references and malformed markers are reported; indexing still covers the whole root, and
-root-wide findings are always reported. @[Init] is the only command that writes without an
+Subcommands and flags are documented by `anchr --help` and @ref[docs/guide/commands.md]. `PATHS`
+filters which files' references and malformed markers are reported; indexing still covers the
+whole root, and root-wide findings are always reported. @[Init] is the only command that writes without an
 explicit flag: never overwrite without `--force`, print every path, be a no-op the second time; it
 merges a hook into `.claude/settings.json` by read-modify-write of a JSON value that preserves
 every key it does not own.

@@ -102,8 +102,8 @@ tag), puts the binary on the step's `PATH`, and runs `anchr check --strict --for
 the checkout. It builds nothing and is not a Docker action, so it works at the release after it
 lands, never before, and its default arguments must only use flags that release has. The
 `file=` in each annotation is relative to `GITHUB_WORKSPACE`, so `working-directory` may point
-into a subdirectory. Without Node and without GitHub, the README's CI section shows the shell
-installer in a job step.
+into a subdirectory. Without Node and without GitHub,
+@ref[docs/guide/continuous-integration.md] shows the shell installer in a job step.
 
 **Not planned.** The reasoning is kept here so the question is not reopened from scratch.
 

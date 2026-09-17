@@ -4,6 +4,13 @@ Notable changes to `context-anchors`. This project follows [semantic versioning]
 
 ## [Unreleased]
 
+### Added
+
+- A user guide, published at https://arkorri.github.io/context-anchors/: getting started,
+  every marker, every command, every setting, the CI setups, and editor and agent integration.
+  The README is now a short introduction that points at it, and the files `anchr init` writes
+  link to it.
+
 ### Changed
 
 - The release workflow runs only on tags; the check that it is fresh runs in CI instead. The
