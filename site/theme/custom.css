@@ -1,0 +1,250 @@
+/* The site's own look, loaded after mdBook's stylesheets (`additional-css` in book.toml).
+
+   Two palettes, "paper" and "ink", live in mdBook's `light` and `ayu` slots so its theme
+   switching, including the Auto entry that follows the system preference, keeps working
+   unchanged; site.js relabels the dark entry and the three unused slots are hidden below.
+   Copper is the one accent: it marks what holds, the active page, an anchor id, a piece of
+   code. Links stay blue. The diagnostic colours are the ones the terminal shows. */
+
+/* ---- Palettes -------------------------------------------------------------------------- */
+
+.light, html:not(.js) {
+    --bg: #faf9fc;
+    --fg: #1f1c2e;
+    --fg-muted: #6b6684;
+    --accent: #a0532c;
+
+    --sidebar-bg: #f1eff6;
+    --sidebar-fg: #3d3852;
+    --sidebar-non-existant: #a8a3bb;
+    --sidebar-active: #a0532c;
+    --sidebar-spacer: #e2dfea;
+    --sidebar-header-border-color: #a0532c;
+
+    --scrollbar: #b9b4c9;
+    --icons: #6b6684;
+    --icons-hover: #1f1c2e;
+
+    --links: #2159a8;
+    --inline-code-color: #8a4622;
+    --code-bg: #f1eff6;
+
+    --theme-popup-bg: #faf9fc;
+    --theme-popup-border: #d9d5e3;
+    --theme-hover: #ece9f2;
+
+    --quote-bg: #f1eff6;
+    --quote-border: #d9d5e3;
+    --warning-border: #a0532c;
+
+    --table-border-color: #e4e1ec;
+    --table-header-bg: #e6e2ef;
+    --table-alternate-bg: #f3f1f8;
+
+    --searchbar-border-color: #c9c4d6;
+    --searchbar-bg: #ffffff;
+    --searchbar-fg: #1f1c2e;
+    --searchbar-shadow-color: #d9d5e3;
+    --searchresults-header-fg: #6b6684;
+    --searchresults-border-color: #d9d5e3;
+    --searchresults-li-bg: #eeeaf5;
+    --search-mark-bg: #f0c9b3;
+
+    --footnote-highlight: #f0c9b3;
+    --overlay-bg: rgba(31, 28, 46, 0.25);
+    --color-scheme: light;
+
+    --diag-error: #b8322a;
+    --diag-warning: #a0532c;
+    --diag-arrow: #2159a8;
+    --diag-help: #1f7a3a;
+    --diag-gutter: #8f8aa5;
+
+    --blockquote-note-color: #2159a8;
+    --blockquote-tip-color: #1f7a3a;
+    --blockquote-important-color: #6b4fbb;
+    --blockquote-warning-color: #a0532c;
+    --blockquote-caution-color: #b8322a;
+}
+
+.ayu {
+    --bg: #15141e;
+    --fg: #d8d5e3;
+    --fg-muted: #8f8ba3;
+    --accent: #d9906a;
+
+    --sidebar-bg: #100f17;
+    --sidebar-fg: #aca7bf;
+    --sidebar-non-existant: #55516a;
+    --sidebar-active: #d9906a;
+    --sidebar-spacer: #211f2e;
+    --sidebar-header-border-color: #d9906a;
+
+    --scrollbar: #3a3750;
+    --icons: #8f8ba3;
+    --icons-hover: #d8d5e3;
+
+    --links: #7cb1ea;
+    --inline-code-color: #e0a07d;
+    --code-bg: #0f0e16;
+
+    --theme-popup-bg: #100f17;
+    --theme-popup-border: #2f2c42;
+    --theme-hover: #1c1a29;
+
+    --quote-bg: #1b1a27;
+    --quote-border: #2a2840;
+    --warning-border: #d9906a;
+
+    --table-border-color: #272538;
+    --table-header-bg: #232134;
+    --table-alternate-bg: #1a1926;
+
+    --searchbar-border-color: #3a3750;
+    --searchbar-bg: #100f17;
+    --searchbar-fg: #d8d5e3;
+    --searchbar-shadow-color: #000000;
+    --searchresults-header-fg: #8f8ba3;
+    --searchresults-border-color: #2f2c42;
+    --searchresults-li-bg: #1b1a27;
+    --search-mark-bg: #7a4526;
+
+    --footnote-highlight: #7a4526;
+    --overlay-bg: rgba(16, 15, 23, 0.5);
+    --color-scheme: dark;
+
+    --diag-error: #f47067;
+    --diag-warning: #d9906a;
+    --diag-arrow: #7cb1ea;
+    --diag-help: #7ccc86;
+    --diag-gutter: #55516a;
+
+    --blockquote-note-color: #7cb1ea;
+    --blockquote-tip-color: #7ccc86;
+    --blockquote-important-color: #b8a3f2;
+    --blockquote-warning-color: #d9906a;
+    --blockquote-caution-color: #f47067;
+}
+
+/* The copy button on code blocks is an icon tinted by a filter; match the icon colours. */
+.light { --copy-button-filter: invert(42%) sepia(9%) saturate(900%) hue-rotate(215deg) brightness(92%) contrast(88%); --copy-button-filter-hover: invert(10%) sepia(12%) saturate(1200%) hue-rotate(215deg) brightness(95%) contrast(95%); }
+.ayu { --copy-button-filter: invert(60%) sepia(8%) saturate(700%) hue-rotate(215deg) brightness(92%) contrast(88%); --copy-button-filter-hover: invert(90%) sepia(6%) saturate(500%) hue-rotate(215deg) brightness(100%) contrast(90%); }
+
+/* The three stock themes that are not ours. Auto, Light, and Dark remain. */
+#mdbook-theme-list li:has(#mdbook-theme-rust),
+#mdbook-theme-list li:has(#mdbook-theme-coal),
+#mdbook-theme-list li:has(#mdbook-theme-navy) {
+    display: none;
+}
+
+/* ---- Type ------------------------------------------------------------------------------ */
+
+:root {
+    --mono-font: 'Atkinson Hyperlegible Mono', ui-monospace, 'SF Mono', Menlo, Consolas, monospace;
+    --code-font-size: 0.9em;
+    --content-max-width: 760px;
+}
+
+body {
+    font-family: 'Atkinson Hyperlegible Next', system-ui, -apple-system, 'Segoe UI', sans-serif;
+    font-size: 1.7rem;
+    line-height: 1.55;
+    font-feature-settings: 'kern', 'liga';
+    text-rendering: optimizeLegibility;
+}
+
+.content p, .content ol, .content ul, .content li { line-height: 1.6; }
+.content p { margin-block: 0 1.1em; }
+.content li + li { margin-block-start: 0.3em; }
+
+h1, h2, h3, h4 {
+    font-weight: 700;
+    letter-spacing: -0.012em;
+    line-height: 1.2;
+    text-wrap: balance;
+}
+h1 { font-size: 3.1rem; margin-block-end: 1em; }
+h2 { font-size: 2.3rem; margin-block-start: 2.2em; margin-block-end: 0.6em; }
+h3 { font-size: 1.85rem; margin-block-start: 1.8em; margin-block-end: 0.5em; }
+h4 { font-size: 1.6rem; margin-block-start: 1.6em; }
+h2 code, h3 code { padding: 0.05em 0.3em; }
+h1 code, h2 code, h3 code { font-size: 0.85em; }
+
+/* A section heading followed by an anchor declaration shows its id, the way the source does.
+   The build writes `<a id>` in its own paragraph directly after the heading. */
+.content h2 + p > a[id]:only-child,
+.content h3 + p > a[id]:only-child {
+    display: inline-block;
+    font-family: var(--mono-font);
+    font-size: 0.8em;
+    color: var(--accent);
+    margin-block-start: -0.9em;
+}
+.content h2 + p > a[id]:only-child::before,
+.content h3 + p > a[id]:only-child::before {
+    content: '@anchor[' attr(id) ']';
+}
+
+/* ---- Links, code, quotes --------------------------------------------------------------- */
+
+.content a:link, .content a:visited {
+    color: var(--links);
+    text-decoration: underline;
+    text-decoration-color: color-mix(in srgb, var(--links) 35%, transparent);
+    text-underline-offset: 0.18em;
+    text-decoration-thickness: 1px;
+}
+.content a:hover { text-decoration-color: var(--links); }
+.content .header:link, .content .header:visited { color: var(--fg); text-decoration: none; }
+
+:not(pre):not(a) > .hljs, :not(pre) > code {
+    background-color: var(--code-bg);
+    color: var(--inline-code-color);
+    padding: 0.08em 0.28em;
+    border-radius: 3px;
+}
+pre > code, pre > .hljs, .ayu pre > .hljs, .light pre > .hljs {
+    background-color: var(--code-bg);
+    line-height: 1.5;
+    padding: 1.1em 1.3em;
+    border-radius: 4px;
+}
+.ayu pre > .hljs { color: var(--fg); }
+pre { border-radius: 4px; }
+
+blockquote {
+    border-inline-start: 3px solid var(--accent);
+    border-block: none;
+    padding: 0.6em 1.2em;
+}
+
+/* ---- Tables ---------------------------------------------------------------------------- */
+
+.table-wrapper { margin-block: 0.6em 1.5em; }
+table { width: 100%; font-size: 0.95em; }
+table td, table th { padding: 0.5em 0.9em; vertical-align: top; }
+table td { border: none; border-block-end: 1px solid var(--table-border-color); }
+table thead th { text-align: start; font-weight: 700; }
+table thead tr { border: none; }
+table tbody tr:nth-child(2n) { background: var(--table-alternate-bg); }
+
+/* ---- Chrome ---------------------------------------------------------------------------- */
+
+.menu-title { font-weight: 700; letter-spacing: -0.01em; }
+#mdbook-menu-bar.bordered { border-block-end-color: var(--table-border-color); }
+.sidebar { font-size: 0.95em; }
+.sidebar .chapter li a.active { font-weight: 700; }
+.sidebar .chapter li { line-height: 1.5; }
+.sidebar .chapter li a { padding: 0.35em 0; }
+.sidebar .chapter li a.active { border-inline-start: 2px solid var(--sidebar-active); padding-inline-start: 0.6em; margin-inline-start: -0.6em; }
+
+/* ---- Diagnostics ----------------------------------------------------------------------- */
+
+/* site.js colours example output in text blocks the way anchr colours a terminal. */
+.diag-error   { color: var(--diag-error); font-weight: 700; }
+.diag-warning { color: var(--diag-warning); font-weight: 700; }
+.diag-arrow   { color: var(--diag-arrow); font-weight: 700; }
+.diag-caret   { font-weight: 700; }
+.diag-help    { color: var(--diag-help); font-weight: 700; }
+.diag-gutter  { color: var(--diag-gutter); }
+.diag-summary { color: var(--fg-muted); }

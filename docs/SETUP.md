@@ -78,7 +78,8 @@ the build if it stops resolving. The marker syntax is in @ref[docs/DESIGN.md] §
 conventions for this repository are in @[Testing] §6.
 
 The user guide under @ref[docs/guide/] is written the same way and published as a site. To see
-a page as a reader will, with the markers rendered as links:
+a page as a reader will, with the markers rendered as links and the site's own palette and
+fonts (@ref[site/theme/]):
 
 ```sh
 node scripts/src/site/build.mjs && mdbook serve site

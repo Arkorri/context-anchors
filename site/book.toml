@@ -18,9 +18,13 @@ build-dir = "book"
 
 [output.html]
 site-url = "/context-anchors/"
-# The theme a first visit gets; the header menu still offers the others, and a choice made
-# there is remembered by the browser.
-default-theme = "ayu"
+# The site's two palettes (theme/custom.css) occupy mdBook's `light` and `ayu` slots: a first
+# visit follows the system preference between them, the header menu offers Auto, Light, and
+# Dark, and a choice made there is remembered by the browser.
+default-theme = "light"
 preferred-dark-theme = "ayu"
 git-repository-url = "https://github.com/Arkorri/context-anchors"
 edit-url-template = "https://github.com/Arkorri/context-anchors/edit/main/{path}"
+# theme/ overrides mdBook's fonts and favicon; the rest of the look is these two files.
+additional-css = ["theme/custom.css"]
+additional-js = ["theme/site.js"]
