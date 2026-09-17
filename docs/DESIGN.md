@@ -91,6 +91,10 @@ Rules with their reasons:
 The same markers work inside source-code comments; a comment pointing at a renamed function is
 the same defect as a doc pointing at one.
 
+The grammar is restated twice for readers who are not here: for users in
+@ref[docs/guide/markers.md], and for agents in @ref[crates/context-anchors/templates/ANCHR.md],
+which `anchr init` writes into their project. A change to a marker edits all three.
+
 ## 4. Roots and resolution
 
 A **root** is a namespace with a filesystem location. Bare references resolve in the current
